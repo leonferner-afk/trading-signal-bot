@@ -66,6 +66,10 @@ class BacktestRun(Base):
     walk_forward_json: Mapped[str] = mapped_column(JSON)
     reliable: Mapped[bool] = mapped_column(Boolean)
     reliability_reason: Mapped[str] = mapped_column(String)
+    # {"common_hours_utc": [14, 15, 18]} — real entry-hour histogram from
+    # this run's own trades, used to tell the user roughly when this setup
+    # tends to trigger. Empty/absent until a backtest has been run.
+    timing_pattern_json: Mapped[str] = mapped_column(JSON, default="{}")
 
 
 _engine = create_engine(f"sqlite:///{settings.db_path}", future=True)

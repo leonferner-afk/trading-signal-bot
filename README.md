@@ -75,18 +75,69 @@ backend/app/
                     metrics.py (win rate/expectancy/profit factor/Sharpe/
                     drawdown), walk_forward.py (train/validation/OOS split
                     + rolling walk-forward consistency check)
-  paper_trading/   simulator.py — checks OPEN journal signals against real
-                    forward price data, logs the actual outcome
-  notify/          notifier.py — formats + delivers (console / optional
-                    webhook) for HIGH_QUALITY+ signals; never trades
+  paper_trading/   simulator.py — checks OPEN journal signals against real,
+                    finer-grained forward price data, logs the actual
+                    outcome, fires "SÄLJ NU" the moment one resolves
+  notify/          notifier.py (KÖP NU / SÄLJ NU formatting + delivery),
+                    telegram_client.py (real Telegram Bot API client),
+                    trading_hours.py (optional quiet-hours gate on entries)
+  pipeline.py      Shared "what to do with a fresh scan result" logic
+                    (dedupe → journal → notify) used by both the manual
+                    scan endpoint and the scheduler
+  scheduler.py     Background asyncio loops: entry scan every
+                    SCAN_LOOP_MINUTES, exit monitor every
+                    MONITOR_LOOP_MINUTES — opt-in via ENABLE_SCHEDULER
   journal/         repository.py — SQLite-backed trade journal (section 17
-                    fields) + performance aggregation
+                    fields) + performance aggregation + open-signal dedupe
   db.py            SQLAlchemy models (signals, backtest_runs)
   main.py          FastAPI app wiring it all together + serving the
                     dashboard
 frontend/          Static dark dashboard (index.html/app.js/styles.css) —
                     Scanner / Journal / Performance / Backtest tabs
 ```
+
+## Notifications: "KÖP NU" → "SÄLJ NU"
+
+This is a **long-only, spot accumulation workflow**: buy on a real signal,
+sell into target/stop, repeat. Only `LONG` signals push a Telegram alert —
+a `SHORT` candidate still shows up in the dashboard/journal (for stats and
+completeness) but is never framed as "köp nu"/"sälj nu", since there's
+nothing to sell on a position you were never long.
+
+1. **Entry scan** (every `SCAN_LOOP_MINUTES`, default 30): the same
+   pipeline as the manual *Run Scan* button. A qualifying LONG signal that
+   isn't already an open position sends **"🟢 KÖP NU"** — entry/stop/
+   target/R:R/why, plus (once you've run a backtest for that symbol+
+   strategy) the real historical average holding time and the hours (UTC)
+   that setup has most often triggered at, so you know roughly when to
+   expect the follow-up. It is then journaled as `OPEN`.
+2. **Exit monitor** (every `MONITOR_LOOP_MINUTES`, default 5, checked
+   against `MONITOR_KLINE_INTERVAL`-granularity candles — finer than the
+   entry strategy's own timeframe so a stop/target hit is caught
+   promptly): the moment an open position's target or stop is hit (or it
+   expires after 48h untouched), **"🔴 SÄLJ NU"** fires with the real
+   outcome, MFE/MAE, and holding time.
+3. **No duplicate alerts**: while a symbol+strategy+direction already has
+   an `OPEN` journal entry, the scanner will not re-alert on the same
+   setup every cycle — it's already being watched for its exit.
+4. **Optional "quiet hours" gate** (`TRADING_HOURS_ENABLED=true`): only
+   suppresses new *entry* alerts outside your configured window/timezone/
+   days — the underlying signal is still journaled either way. Exit
+   alerts are **never** gated; once you're in a position you want to know
+   it closed regardless of the hour. Off by default since crypto trades
+   24/7. Note: all three current strategies are intraday-to-swing
+   (≤48h max holding) — there's no long-horizon strategy yet where the
+   gate would be a non-issue by design rather than by choice.
+
+Delivery is via **Telegram** (set `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`
+— see `.env.example` for the 2-minute setup) plus console logging and an
+optional generic webhook. Telegram's API host is also blocked by this
+sandbox's network policy (verified the same way as the market-data hosts),
+so delivery itself couldn't be tested live here — `notify_entry`/
+`notify_exit` are covered by unit tests with the HTTP call stubbed out
+(`tests/test_notifier.py`), and the dev smoke server proves the full
+scan → dedupe → journal → notify → exit loop wires together correctly
+end to end.
 
 ### Design choices that matter
 
@@ -154,7 +205,11 @@ performance (see "A known limitation" above).
   reliable/unreliable verdict and the reason for it.
 - **Update Paper Trades** button → checks every OPEN journal signal
   against real subsequent price action and closes it with the actual
-  outcome (target/stop/expired) plus MFE/MAE/holding time.
+  outcome (target/stop/expired) plus MFE/MAE/holding time (fires "SÄLJ NU"
+  for anything that resolved).
+- With `ENABLE_SCHEDULER=true`, both of the above happen automatically in
+  the background on the cadence you set — you don't need the dashboard
+  open at all, just Telegram configured.
 
 ## What's intentionally minimal
 

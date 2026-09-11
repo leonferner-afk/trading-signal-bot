@@ -59,6 +59,41 @@ class Settings:
     # Optional outbound webhook (Slack/Discord-compatible) for notifications.
     notify_webhook_url: str | None = os.getenv("NOTIFY_WEBHOOK_URL") or None
 
+    # Telegram delivery for "KÖP NU" / "SÄLJ NU" alerts — the primary
+    # notification channel. Both must be set for anything to send; missing
+    # either one just logs a warning and skips delivery, it never blocks
+    # the rest of the system.
+    telegram_bot_token: str | None = os.getenv("TELEGRAM_BOT_TOKEN") or None
+    telegram_chat_id: str | None = os.getenv("TELEGRAM_CHAT_ID") or None
+
+    # Background scheduler: off by default so importing/testing the app
+    # never silently starts network loops. Two separate cadences —
+    # entries don't need to be checked as often as open positions do.
+    enable_scheduler: bool = os.getenv("ENABLE_SCHEDULER", "false").lower() == "true"
+    scan_loop_minutes: int = int(os.getenv("SCAN_LOOP_MINUTES", "30"))
+    monitor_loop_minutes: int = int(os.getenv("MONITOR_LOOP_MINUTES", "5"))
+    # Finer candle granularity used ONLY to monitor already-open positions
+    # for a stop/target hit — independent of the (usually higher)
+    # timeframe each strategy evaluates entries on.
+    monitor_kline_interval: str = os.getenv("MONITOR_KLINE_INTERVAL", "5m")
+
+    # Optional "quiet hours" gate on ENTRY ("köp nu") notifications only —
+    # exit ("sälj nu") alerts always fire regardless, since once you're in
+    # a position you want to know it closed no matter the hour. Off by
+    # default (crypto trades 24/7, so there's no gate unless you ask for
+    # one). Days are lowercase 3-letter, comma-separated.
+    trading_hours_enabled: bool = os.getenv("TRADING_HOURS_ENABLED", "false").lower() == "true"
+    trading_hours_start: str = os.getenv("TRADING_HOURS_START", "09:00")
+    trading_hours_end: str = os.getenv("TRADING_HOURS_END", "22:00")
+    trading_hours_timezone: str = os.getenv("TRADING_HOURS_TIMEZONE", "Europe/Stockholm")
+    trading_days: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            d.strip().lower()
+            for d in os.getenv("TRADING_DAYS", "mon,tue,wed,thu,fri,sat,sun").split(",")
+            if d.strip()
+        )
+    )
+
     db_path: str = os.getenv("DB_PATH", "sagoton.db")
 
 

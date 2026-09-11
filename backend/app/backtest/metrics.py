@@ -6,6 +6,7 @@ looks profitable pre-cost is reported as NOT_PROFITABLE_AFTER_COSTS.
 from __future__ import annotations
 
 import math
+from collections import Counter
 from dataclasses import dataclass
 
 from app.backtest.engine import Trade
@@ -108,3 +109,21 @@ def compute_metrics(trades: list[Trade]) -> BacktestMetrics:
         return_after_costs_pct=round(return_after_costs, 4),
         classification=classification,
     )
+
+
+def entry_hour_timing_pattern(trades: list[Trade], top_n: int = 3, min_trades: int = 20) -> dict:
+    """Real, backtest-derived answer to "roughly when does this setup tend
+    to trigger" — a histogram of each trade's entry hour (UTC), reduced to
+    the top `top_n` most common hours. Requires at least `min_trades` to
+    say anything (a pattern from a handful of trades isn't a pattern, it's
+    noise) — returns {} rather than a misleading result below that."""
+    if len(trades) < min_trades:
+        return {}
+    hours = [t.entry_time.hour for t in trades]
+    counts = Counter(hours)
+    common = [hour for hour, _ in counts.most_common(top_n)]
+    return {
+        "common_hours_utc": sorted(common),
+        "based_on_trades": len(trades),
+        "hour_histogram_utc": dict(sorted(counts.items())),
+    }

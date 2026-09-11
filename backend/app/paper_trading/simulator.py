@@ -21,6 +21,14 @@ from app.db import SignalRecord
 
 EXPIRY_HOURS = 48
 
+_UNIT_MINUTES = {"m": 1, "h": 60, "d": 1440, "w": 10080}
+
+
+def _interval_to_minutes(interval: str) -> float:
+    unit = interval[-1]
+    value = float(interval[:-1])
+    return value * _UNIT_MINUTES.get(unit, 60)
+
 
 def _parse_timestamp(value: str) -> dt.datetime:
     ts = pd.Timestamp(value)
@@ -38,7 +46,9 @@ def evaluate_open_signal(client: BinanceClient, record: SignalRecord, interval: 
     age_hours = (now - entry_time).total_seconds() / 3600.0
 
     try:
-        limit = min(1000, max(50, int(age_hours * 2) + 20))
+        candle_minutes = _interval_to_minutes(interval)
+        needed_candles = int((age_hours * 60) / candle_minutes) + 20
+        limit = min(1000, max(50, needed_candles))
         df = client.get_klines(record.symbol, interval, limit=limit)
     except DataUnavailable:
         return None
@@ -87,11 +97,15 @@ def evaluate_open_signal(client: BinanceClient, record: SignalRecord, interval: 
 
 
 def run_paper_trading_update(interval: str | None = None) -> dict:
-    """Checks every OPEN signal against fresh market data and closes any
-    that have resolved. Returns a summary of what changed."""
+    """Checks every OPEN signal against fresh market data (at a finer
+    granularity than the entry strategy's own timeframe, so a stop/target
+    hit is caught promptly) and closes any that have resolved — firing a
+    "SÄLJ NU" notification the moment that happens. Returns a summary of
+    what changed."""
     from app.journal.repository import close_signal, get_open_signals
+    from app.notify.notifier import notify_exit
 
-    interval = interval or settings.scan_interval
+    interval = interval or settings.monitor_kline_interval
     open_records = get_open_signals()
     updated = []
     unavailable = []
@@ -110,6 +124,7 @@ def run_paper_trading_update(interval: str | None = None) -> dict:
                 update["holding_time_minutes"],
                 update["closed_at"],
             )
+            notify_exit(record, update)
             updated.append({"id": record.id, "symbol": record.symbol, **{k: v for k, v in update.items() if k != "closed_at"}})
 
     return {"checked": len(open_records), "updated": updated, "still_open_or_unavailable": unavailable}

@@ -37,6 +37,7 @@ class SplitResult:
     out_of_sample: BacktestMetrics
     reliable: bool
     reliability_reason: str
+    out_of_sample_trades: list[Trade] = None
 
 
 def train_validation_oos_split(trades: list[Trade]) -> SplitResult:
@@ -45,6 +46,7 @@ def train_validation_oos_split(trades: list[Trade]) -> SplitResult:
         return SplitResult(
             train=empty, validation=empty, out_of_sample=empty,
             reliable=False, reliability_reason="No trades were generated over the requested period.",
+            out_of_sample_trades=[],
         )
 
     ordered = sorted(trades, key=lambda t: t.entry_time)
@@ -64,7 +66,7 @@ def train_validation_oos_split(trades: list[Trade]) -> SplitResult:
 
     return SplitResult(
         train=train_metrics, validation=val_metrics, out_of_sample=oos_metrics,
-        reliable=reliable, reliability_reason=reason,
+        reliable=reliable, reliability_reason=reason, out_of_sample_trades=oos_trades,
     )
 
 

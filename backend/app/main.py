@@ -13,13 +13,13 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 
 from app.backtest.engine import run_backtest
-from app.backtest.metrics import compute_metrics
+from app.backtest.metrics import compute_metrics, entry_hour_timing_pattern
 from app.backtest.walk_forward import train_validation_oos_split, walk_forward_analysis
 from app.config import settings
 from app.data.binance_client import BinanceClient, DataUnavailable
 from app.db import init_db
 from app.journal import repository as journal_repo
-from app.notify.notifier import notify
+from app.pipeline import historical_probability_for, record_and_notify_signals
 from app.scanner.scanner import enrich, run_scan
 from app.strategies import breakout, momentum, reversal
 
@@ -34,6 +34,16 @@ app = FastAPI(title="Sagoton Trading Signal Platform", version="0.1.0")
 @app.on_event("startup")
 def _startup() -> None:
     init_db()
+    from app import scheduler
+
+    scheduler.start()
+
+
+@app.on_event("shutdown")
+def _shutdown() -> None:
+    from app import scheduler
+
+    scheduler.stop()
 
 
 @app.get("/api/health")
@@ -53,24 +63,16 @@ def get_config() -> dict:
         "slippage_bps": settings.slippage_bps,
         "news_configured": settings.cryptopanic_api_key is not None,
         "webhook_configured": settings.notify_webhook_url is not None,
+        "telegram_configured": settings.telegram_bot_token is not None and settings.telegram_chat_id is not None,
+        "scheduler_enabled": settings.enable_scheduler,
+        "scan_loop_minutes": settings.scan_loop_minutes,
+        "monitor_loop_minutes": settings.monitor_loop_minutes,
+        "trading_hours_enabled": settings.trading_hours_enabled,
+        "trading_hours_start": settings.trading_hours_start,
+        "trading_hours_end": settings.trading_hours_end,
+        "trading_hours_timezone": settings.trading_hours_timezone,
+        "trading_days": list(settings.trading_days),
     }
-
-
-def _historical_probability_for(symbol: str, strategy: str) -> dict | None:
-    runs = journal_repo.list_backtest_runs(limit=50)
-    for run in runs:
-        if run.symbol == symbol and run.strategy == strategy:
-            import json
-
-            split = json.loads(run.split_json)
-            oos = split.get("out_of_sample") or {}
-            if oos.get("num_trades", 0) >= 20:
-                return {
-                    "similar_setups": oos["num_trades"],
-                    "target_hit_rate": oos.get("win_rate") or 0,
-                    "average_return_pct": oos.get("expectancy_pct") or 0,
-                }
-    return None
 
 
 @app.post("/api/scan")
@@ -80,10 +82,7 @@ def scan() -> dict:
     except DataUnavailable as exc:
         raise HTTPException(status_code=502, detail=f"Market data unavailable: {exc}") from exc
 
-    for signal in result.signals:
-        historical = _historical_probability_for(signal.symbol, signal.strategy)
-        journal_repo.save_signal(signal, historical)
-        notify(signal, historical)
+    notify_outcomes = record_and_notify_signals(result.signals)
 
     return {
         "scanned_at": result.scanned_at,
@@ -109,10 +108,11 @@ def scan() -> dict:
                 "regime_label": s.regime_label,
                 "breakdown": s.breakdown.__dict__,
                 "warning": s.warning,
-                "historical_probability": _historical_probability_for(s.symbol, s.strategy),
+                "historical_probability": historical_probability_for(s.symbol, s.strategy),
             }
             for s in result.signals
         ],
+        "notify_outcomes": notify_outcomes,
         "no_trade_summary": result.no_trade_summary,
         "skipped": [{"symbol": s.symbol, "reason": s.reason} for s in result.skipped],
         "message": "NO HIGH-CONVICTION SETUPS TODAY." if not result.signals else None,
@@ -223,11 +223,14 @@ def backtest_run(
         "consistency_reason": walk_forward.consistency_reason,
     }
 
+    timing_pattern = entry_hour_timing_pattern(split.out_of_sample_trades or [])
+
     journal_repo.save_backtest_run(
         symbol=symbol, interval=interval, strategy=strategy,
         start=str(df["close_time"].iloc[0]), end=str(df["close_time"].iloc[-1]),
         split=split_dict, walk_forward=wf_dict,
         reliable=split.reliable, reliability_reason=split.reliability_reason,
+        timing_pattern=timing_pattern,
     )
 
     overall = compute_metrics(trades)
@@ -240,6 +243,7 @@ def backtest_run(
         "overall": overall.to_dict(),
         "split": split_dict,
         "walk_forward": wf_dict,
+        "timing_pattern": timing_pattern,
     }
 
 

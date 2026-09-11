@@ -13,6 +13,21 @@ from app.db import BacktestRun, SignalRecord, get_session
 from app.scoring.score import Signal
 
 
+def has_open_signal(symbol: str, strategy: str, direction: str) -> bool:
+    """True if there is already an OPEN journal entry for this exact
+    symbol/strategy/direction combination. Used to avoid re-alerting
+    ("köp nu" spam) for a setup that is still active from a previous scan
+    — the position is already being watched for its exit."""
+    with get_session() as session:
+        stmt = select(SignalRecord).where(
+            SignalRecord.symbol == symbol,
+            SignalRecord.strategy == strategy,
+            SignalRecord.direction == direction,
+            SignalRecord.result == "OPEN",
+        )
+        return session.scalars(stmt).first() is not None
+
+
 def save_signal(signal: Signal, historical_probability: dict | None = None) -> int:
     with get_session() as session:
         record = SignalRecord(
@@ -92,6 +107,7 @@ def save_backtest_run(
     walk_forward: dict,
     reliable: bool,
     reliability_reason: str,
+    timing_pattern: dict | None = None,
 ) -> int:
     with get_session() as session:
         record = BacktestRun(
@@ -104,6 +120,7 @@ def save_backtest_run(
             walk_forward_json=json.dumps(walk_forward),
             reliable=reliable,
             reliability_reason=reliability_reason,
+            timing_pattern_json=json.dumps(timing_pattern or {}),
         )
         session.add(record)
         session.commit()

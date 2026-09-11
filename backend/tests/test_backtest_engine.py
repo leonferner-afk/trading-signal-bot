@@ -87,6 +87,46 @@ def test_metrics_flags_losing_strategy_as_not_profitable():
 def test_split_and_walk_forward_handle_empty_trades_honestly():
     split = train_validation_oos_split([])
     assert split.reliable is False
+    assert split.out_of_sample_trades == []
     wf = walk_forward_analysis([])
     assert wf.consistent is False
     assert wf.windows == []
+
+
+def test_entry_hour_timing_pattern_requires_minimum_trades():
+    from app.backtest.engine import Trade
+    from app.backtest.metrics import entry_hour_timing_pattern
+
+    few_trades = [
+        Trade(
+            symbol="TEST", strategy="test", direction="LONG",
+            entry_time=pd.Timestamp("2024-01-01T14:00:00Z"), entry_price=100, exit_time=pd.Timestamp("2024-01-01T16:00:00Z"),
+            exit_price=105, stop=95, target=110, result="TARGET_HIT", return_pct=5.0,
+            holding_bars=2, holding_minutes=120, max_favorable_excursion_pct=5.0, max_adverse_excursion_pct=0.5,
+        )
+        for _ in range(5)
+    ]
+    assert entry_hour_timing_pattern(few_trades, min_trades=20) == {}
+
+
+def test_entry_hour_timing_pattern_finds_common_hours():
+    from app.backtest.engine import Trade
+    from app.backtest.metrics import entry_hour_timing_pattern
+
+    trades = []
+    # 15 trades entered at hour 14 UTC, 10 at hour 9 UTC — hour 14 should
+    # dominate the "common hours" result.
+    for hour, count in ((14, 15), (9, 10)):
+        for i in range(count):
+            trades.append(
+                Trade(
+                    symbol="TEST", strategy="test", direction="LONG",
+                    entry_time=pd.Timestamp(f"2024-01-{(i % 27) + 1:02d}T{hour:02d}:00:00Z"),
+                    entry_price=100, exit_time=pd.Timestamp(f"2024-01-{(i % 27) + 1:02d}T{hour + 2:02d}:00:00Z"),
+                    exit_price=105, stop=95, target=110, result="TARGET_HIT", return_pct=5.0,
+                    holding_bars=2, holding_minutes=120, max_favorable_excursion_pct=5.0, max_adverse_excursion_pct=0.5,
+                )
+            )
+    pattern = entry_hour_timing_pattern(trades, top_n=1, min_trades=20)
+    assert pattern["common_hours_utc"] == [14]
+    assert pattern["based_on_trades"] == 25
