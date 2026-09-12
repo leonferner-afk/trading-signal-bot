@@ -19,7 +19,7 @@ import httpx
 
 from app.config import settings
 
-logger = logging.getLogger("sagoton.telegram")
+logger = logging.getLogger("tradingbot.telegram")
 
 API_BASE = "https://api.telegram.org"
 

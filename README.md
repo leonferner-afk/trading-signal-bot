@@ -1,4 +1,4 @@
-# Sagoton — Trading Signal Platform
+# Trading Signal Bot
 
 A signal-only quant platform that scans a market, scores candidate setups
 on a transparent 0-100 scale, and tells you the entry/stop/target and the

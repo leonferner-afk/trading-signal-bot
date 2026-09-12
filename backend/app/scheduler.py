@@ -23,7 +23,7 @@ from app.data.binance_client import DataUnavailable
 from app.pipeline import record_and_notify_signals
 from app.scanner.scanner import run_scan
 
-logger = logging.getLogger("sagoton.scheduler")
+logger = logging.getLogger("tradingbot.scheduler")
 
 _tasks: list[asyncio.Task] = []
 

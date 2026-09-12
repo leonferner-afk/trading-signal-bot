@@ -24,11 +24,11 @@ from app.scanner.scanner import enrich, run_scan
 from app.strategies import breakout, momentum, reversal
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("sagoton.api")
+logger = logging.getLogger("tradingbot.api")
 
 STRATEGY_MODULES = {"breakout": breakout, "momentum": momentum, "reversal": reversal}
 
-app = FastAPI(title="Sagoton Trading Signal Platform", version="0.1.0")
+app = FastAPI(title="Trading Signal Bot", version="0.1.0")
 
 
 @app.on_event("startup")

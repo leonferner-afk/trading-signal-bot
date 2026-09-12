@@ -18,5 +18,5 @@ if [ ! -f .env ]; then
   echo "Created .env from .env.example — edit it (Telegram token/chat id, watchlist, etc.) then re-run this script."
 fi
 
-echo "Starting Sagoton on http://localhost:8000 (Ctrl+C to stop)..."
+echo "Starting Trading Signal Bot on http://localhost:8000 (Ctrl+C to stop)..."
 uvicorn app.main:app --reload --port 8000

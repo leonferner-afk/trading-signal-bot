@@ -29,7 +29,7 @@ from app.notify import telegram_client
 from app.notify.trading_hours import is_within_trading_hours
 from app.scoring.score import Signal
 
-logger = logging.getLogger("sagoton.notify")
+logger = logging.getLogger("tradingbot.notify")
 
 
 def _format_holding_duration(minutes: float) -> str:

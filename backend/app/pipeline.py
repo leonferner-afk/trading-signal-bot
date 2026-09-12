@@ -11,7 +11,7 @@ from app.notify.notifier import notify_entry
 from app.scanner.scanner import ScanResult
 from app.scoring.score import Signal
 
-logger = logging.getLogger("sagoton.pipeline")
+logger = logging.getLogger("tradingbot.pipeline")
 
 
 def historical_probability_for(symbol: str, strategy: str) -> dict | None:

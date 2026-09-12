@@ -94,7 +94,7 @@ class Settings:
         )
     )
 
-    db_path: str = os.getenv("DB_PATH", "sagoton.db")
+    db_path: str = os.getenv("DB_PATH", "tradingbot.db")
 
 
 settings = Settings()
