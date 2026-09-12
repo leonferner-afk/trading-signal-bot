@@ -6,7 +6,9 @@ Setup (do this once, takes ~2 minutes):
   2. Message your new bot anything (so it's allowed to message you back).
   3. Fetch https://api.telegram.org/bot<token>/getUpdates in a browser to
      find your numeric chat_id in the response.
-  4. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env.
+  4. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env, or paste them
+     into the dashboard's Settings tab (takes effect immediately, no
+     restart needed).
 
 If either is missing, `send_message` returns False and logs a warning —
 it never raises, so a Telegram outage can't take down the scanner.
@@ -17,7 +19,7 @@ import logging
 
 import httpx
 
-from app.config import settings
+from app.runtime_settings import get_effective_settings
 
 logger = logging.getLogger("tradingbot.telegram")
 
@@ -25,12 +27,14 @@ API_BASE = "https://api.telegram.org"
 
 
 def is_configured() -> bool:
+    settings = get_effective_settings()
     return bool(settings.telegram_bot_token and settings.telegram_chat_id)
 
 
 def send_message(text: str, timeout: float = 10.0) -> bool:
-    if not is_configured():
-        logger.warning("Telegram not configured (TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID missing) — skipping delivery.")
+    settings = get_effective_settings()
+    if not (settings.telegram_bot_token and settings.telegram_chat_id):
+        logger.warning("Telegram not configured (bot token/chat id missing) — skipping delivery.")
         return False
     url = f"{API_BASE}/bot{settings.telegram_bot_token}/sendMessage"
     try:

@@ -81,19 +81,29 @@ backend/app/
   notify/          notifier.py (KÖP NU / SÄLJ NU formatting + delivery),
                     telegram_client.py (real Telegram Bot API client),
                     trading_hours.py (optional quiet-hours gate on entries)
+  risk/            risk_reward.py (entry/stop/target) + position_sizing.py
+                    (fixed-fractional position size from portfolio/risk %)
+  runtime_settings.py  DB-backed overrides layered on top of .env defaults
+                    (Telegram creds, watchlist, thresholds, scheduler
+                    cadence, quiet hours, position sizing) — read by every
+                    consumer above instead of the raw env settings, so the
+                    dashboard Settings tab can change any of it live
   pipeline.py      Shared "what to do with a fresh scan result" logic
                     (dedupe → journal → notify) used by both the manual
                     scan endpoint and the scheduler
-  scheduler.py     Background asyncio loops: entry scan every
-                    SCAN_LOOP_MINUTES, exit monitor every
-                    MONITOR_LOOP_MINUTES — opt-in via ENABLE_SCHEDULER
+  scheduler.py     Background asyncio loops: entry scan + exit monitor.
+                    Always running; each cycle re-reads runtime_settings
+                    to decide whether to actually do anything, so
+                    enabling/disabling or re-timing from the Settings tab
+                    takes effect within ~60s, no restart needed
   journal/         repository.py — SQLite-backed trade journal (section 17
                     fields) + performance aggregation + open-signal dedupe
-  db.py            SQLAlchemy models (signals, backtest_runs)
+                    + chronological equity curve
+  db.py            SQLAlchemy models (signals, backtest_runs, app_settings)
   main.py          FastAPI app wiring it all together + serving the
                     dashboard
 frontend/          Static dark dashboard (index.html/app.js/styles.css) —
-                    Scanner / Journal / Performance / Backtest tabs
+                    Scanner / Journal / Performance / Backtest / Settings
 ```
 
 ## Notifications: "KÖP NU" → "SÄLJ NU"
@@ -129,15 +139,32 @@ nothing to sell on a position you were never long.
    (≤48h max holding) — there's no long-horizon strategy yet where the
    gate would be a non-issue by design rather than by choice.
 
-Delivery is via **Telegram** (set `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`
-— see `.env.example` for the 2-minute setup) plus console logging and an
-optional generic webhook. Telegram's API host is also blocked by this
-sandbox's network policy (verified the same way as the market-data hosts),
-so delivery itself couldn't be tested live here — `notify_entry`/
-`notify_exit` are covered by unit tests with the HTTP call stubbed out
+Delivery is via **Telegram** — set `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`
+either in `.env` or, easier, paste them into the **Settings tab** (takes
+effect immediately) — plus console logging and an optional generic
+webhook. Telegram's API host is also blocked by this sandbox's network
+policy (verified the same way as the market-data hosts), so delivery
+itself couldn't be tested live here — `notify_entry`/`notify_exit` are
+covered by unit tests with the HTTP call stubbed out
 (`tests/test_notifier.py`), and the dev smoke server proves the full
 scan → dedupe → journal → notify → exit loop wires together correctly
 end to end.
+
+Every "KÖP NU" also includes a **suggested position size** (fixed-
+fractional risk model: portfolio size × risk-per-trade % ÷ stop distance,
+capped at 100% of portfolio) — configurable in Settings, advisory only,
+never executes anything.
+
+### Settings tab — change config live, no redeploy
+
+Telegram credentials, watchlist, score thresholds, scheduler on/off and
+cadence, quiet hours, and position sizing are all editable from the
+dashboard's **Settings** tab. Under the hood this writes to a single-row
+`app_settings` DB table (`app/runtime_settings.py`) that overrides the
+`.env` default for just that field — `.env` remains the fallback for
+anything you haven't explicitly changed in the UI. The scheduler polls its
+own enabled-state every ~60s, so flipping it on/off in Settings takes
+effect without restarting the process.
 
 ### Design choices that matter
 
@@ -197,8 +224,11 @@ performance (see "A known limitation" above).
 - **Journal tab** → every signal that ever cleared the filter, with its
   full feature/score breakdown, persisted to SQLite.
 - **Performance tab** → aggregated win rate / expectancy / profit factor /
-  drawdown from *closed* signals only; shows an honest empty state until
-  paper trading or backtests have produced closed outcomes.
+  drawdown from *closed* signals only, plus a chronological **equity
+  curve** (cumulative per-trade % return over time, hover a point for the
+  trade behind it) so you can see whether the edge is holding, not just
+  trust an aggregate number. Honest empty state until paper trading or
+  backtests have produced closed outcomes.
 - **Backtest tab** → pick a symbol/strategy/interval, run a real historical
   backtest with fees+slippage, see the train/validation/out-of-sample
   split and a walk-forward consistency check, with an explicit
@@ -227,6 +257,23 @@ over an enormous system with fake functionality":
   strategies' edge holds across sequential time windows — there is no
   parameter-fitting step to "train," since none of the strategies fit
   parameters to data.
+
+## Roadmap — what's next
+
+1. **Run real backtests** (blocked in this dev sandbox — needs Codespaces
+   or a machine with normal network access) across the watchlist and all
+   three strategies. This is the priority: everything else is secondary
+   until we know which strategy/symbol combos actually have out-of-sample
+   edge after costs. Expect some to come back `NOT_PROFITABLE_AFTER_COSTS`
+   — that's the system working, not failing.
+2. **Paper-trade the survivors** for a couple of weeks (`ENABLE_SCHEDULER`
+   + Telegram configured) before trusting a signal with real money — the
+   only way to get an honest "similar setups hit target X% of the time"
+   number for a live-running instance, not just backtested history.
+3. Retire or re-tune anything that doesn't hold up out-of-sample, rather
+   than adding more strategies on top of unproven ones.
+4. Longer-horizon candidates: a richer news/catalyst source, on-chain or
+   order-book features — only once the above shows real edge to extend.
 
 ## Absolute rules this system follows
 

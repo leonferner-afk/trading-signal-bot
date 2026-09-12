@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.config import settings
 from app.data.news_client import NewsResult, catalyst_score
 from app.regime.classifier import RegimeSnapshot, regime_fit_score
 from app.risk.risk_reward import RiskReward, compute_risk_reward
@@ -84,12 +83,29 @@ class Signal:
     news_available: bool = False
 
 
-def tier_for_score(score: float) -> str:
-    if score >= settings.score_exceptional_min:
+def tier_for_score(
+    score: float,
+    *,
+    exceptional_min: float | None = None,
+    high_quality_min: float | None = None,
+    watch_min: float | None = None,
+) -> str:
+    """Thresholds default to the live effective settings (env + any
+    dashboard override); overridable here only so tests don't need to
+    touch the DB."""
+    if exceptional_min is None or high_quality_min is None or watch_min is None:
+        from app.runtime_settings import get_effective_settings
+
+        live = get_effective_settings()
+        exceptional_min = exceptional_min if exceptional_min is not None else live.score_exceptional_min
+        high_quality_min = high_quality_min if high_quality_min is not None else live.score_high_quality_min
+        watch_min = watch_min if watch_min is not None else live.score_watch_min
+
+    if score >= exceptional_min:
         return EXCEPTIONAL
-    if score >= settings.score_high_quality_min:
+    if score >= high_quality_min:
         return HIGH_QUALITY
-    if score >= settings.score_watch_min:
+    if score >= watch_min:
         return WATCH
     return NO_TRADE
 

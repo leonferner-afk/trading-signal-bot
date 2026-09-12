@@ -27,6 +27,7 @@
     <button class="tab-btn" data-tab="journal">Journal</button>
     <button class="tab-btn" data-tab="performance">Performance</button>
     <button class="tab-btn" data-tab="backtest">Backtest</button>
+    <button class="tab-btn" data-tab="settings">Settings</button>
   </nav>
 
   <!-- SCANNER -->
@@ -67,6 +68,10 @@
       <button class="btn secondary" id="btn-refresh-performance">Refresh</button>
     </div>
     <div id="performance-content"></div>
+    <section class="block" id="equity-curve-block" style="margin-top:26px;">
+      <h2 class="section-title">Equity Curve (closed signals, chronological)</h2>
+      <div id="equity-curve-container"></div>
+    </section>
   </section>
 
   <!-- BACKTEST -->
@@ -97,6 +102,102 @@
         <tbody></tbody>
       </table>
     </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="panel" id="panel-settings">
+    <div class="scan-controls">
+      <h2 class="section-title" style="margin:0;">Settings</h2>
+      <span class="toast" id="settings-saved-note"></span>
+    </div>
+
+    <section class="block">
+      <h2 class="section-title">Notifications (Telegram)</h2>
+      <p class="settings-hint">
+        Create a bot via <b>@BotFather</b> on Telegram (send <code>/newbot</code>), message it once, then open
+        <code>https://api.telegram.org/bot&lt;token&gt;/getUpdates</code> in a browser to find your chat id.
+      </p>
+      <div class="form-row">
+        <label class="settings-label">Bot token
+          <input type="text" id="set-telegram-token" placeholder="123456789:AA..." />
+        </label>
+        <label class="settings-label">Chat ID
+          <input type="text" id="set-telegram-chat" placeholder="123456789" />
+        </label>
+        <label class="settings-label">Alert min. score
+          <input type="number" id="set-notify-min-score" min="0" max="100" step="1" style="width:80px;" />
+        </label>
+      </div>
+    </section>
+
+    <section class="block">
+      <h2 class="section-title">Watchlist &amp; Quality Filter</h2>
+      <div class="form-row">
+        <label class="settings-label" style="flex:1; min-width:260px;">Watchlist (comma-separated)
+          <input type="text" id="set-watchlist" placeholder="BTCUSDT,ETHUSDT,..." />
+        </label>
+      </div>
+      <div class="form-row">
+        <label class="settings-label">WATCH min
+          <input type="number" id="set-score-watch" min="0" max="100" style="width:70px;" />
+        </label>
+        <label class="settings-label">HIGH_QUALITY min
+          <input type="number" id="set-score-hq" min="0" max="100" style="width:70px;" />
+        </label>
+        <label class="settings-label">EXCEPTIONAL min
+          <input type="number" id="set-score-exceptional" min="0" max="100" style="width:70px;" />
+        </label>
+      </div>
+    </section>
+
+    <section class="block">
+      <h2 class="section-title">Automation</h2>
+      <div class="form-row">
+        <label class="settings-checkbox"><input type="checkbox" id="set-scheduler-enabled" /> Enable background scheduler</label>
+      </div>
+      <div class="form-row">
+        <label class="settings-label">Scan every (min)
+          <input type="number" id="set-scan-loop" min="1" style="width:70px;" />
+        </label>
+        <label class="settings-label">Monitor open positions every (min)
+          <input type="number" id="set-monitor-loop" min="1" style="width:70px;" />
+        </label>
+      </div>
+    </section>
+
+    <section class="block">
+      <h2 class="section-title">Quiet Hours (entry alerts only — exits always fire)</h2>
+      <div class="form-row">
+        <label class="settings-checkbox"><input type="checkbox" id="set-hours-enabled" /> Enable quiet-hours gate</label>
+      </div>
+      <div class="form-row">
+        <label class="settings-label">From
+          <input type="time" id="set-hours-start" />
+        </label>
+        <label class="settings-label">To
+          <input type="time" id="set-hours-end" />
+        </label>
+        <label class="settings-label" style="flex:1; min-width:200px;">Timezone (IANA)
+          <input type="text" id="set-hours-tz" placeholder="Europe/Stockholm" />
+        </label>
+      </div>
+      <div class="form-row" id="set-hours-days"></div>
+    </section>
+
+    <section class="block">
+      <h2 class="section-title">Position Sizing</h2>
+      <p class="settings-hint">Advisory only — shown on every "köp nu" alert, never executes a trade.</p>
+      <div class="form-row">
+        <label class="settings-label">Portfolio size (USD)
+          <input type="number" id="set-portfolio-size" min="0" step="1" style="width:120px;" />
+        </label>
+        <label class="settings-label">Risk per trade (%)
+          <input type="number" id="set-risk-per-trade" min="0" max="100" step="0.1" style="width:80px;" />
+        </label>
+      </div>
+    </section>
+
+    <button class="btn" id="btn-save-settings">Save Settings</button>
   </section>
 </div>
 <script src="app.js"></script>

@@ -1,0 +1,48 @@
+"""Position sizing: turns "here's a good setup" into "here's how much to
+actually buy" — a fixed-fractional risk model, the standard, conservative
+approach (never risk more than a small, fixed % of the portfolio on any
+one trade, regardless of how confident the signal looks).
+
+This is advisory math only, computed from numbers you provide (portfolio
+size, risk per trade %) — it never executes anything and never assumes a
+default portfolio size beyond what's configured in Settings.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class PositionSize:
+    portfolio_size_usd: float
+    risk_per_trade_pct: float
+    risk_amount_usd: float
+    position_size_usd: float
+    position_pct_of_portfolio: float
+    units: float
+
+
+def compute_position_size(
+    entry: float, stop: float, portfolio_size_usd: float, risk_per_trade_pct: float
+) -> PositionSize:
+    risk_distance_pct = abs(entry - stop) / entry
+    risk_amount_usd = portfolio_size_usd * (risk_per_trade_pct / 100.0)
+
+    if risk_distance_pct <= 0:
+        # Degenerate input (entry == stop) — no valid size, don't divide by zero.
+        return PositionSize(portfolio_size_usd, risk_per_trade_pct, risk_amount_usd, 0.0, 0.0, 0.0)
+
+    position_size_usd = risk_amount_usd / risk_distance_pct
+    # Never suggest risking more notional than the whole portfolio, even
+    # if a very tight stop would otherwise imply a leveraged position size.
+    position_size_usd = min(position_size_usd, portfolio_size_usd)
+    units = position_size_usd / entry
+
+    return PositionSize(
+        portfolio_size_usd=portfolio_size_usd,
+        risk_per_trade_pct=risk_per_trade_pct,
+        risk_amount_usd=round(risk_amount_usd, 2),
+        position_size_usd=round(position_size_usd, 2),
+        position_pct_of_portfolio=round(position_size_usd / portfolio_size_usd * 100, 2) if portfolio_size_usd > 0 else 0.0,
+        units=round(units, 8),
+    )

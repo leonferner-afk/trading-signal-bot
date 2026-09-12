@@ -59,3 +59,29 @@ def test_dedupe_clears_once_signal_is_closed():
 
     journal_repo.close_signal(signal_id, "TARGET_HIT", 6.0, 1.0, 120.0, dt.datetime.now(dt.timezone.utc))
     assert journal_repo.has_open_signal("BTCUSDT", "breakout", "LONG") is False
+
+
+def test_equity_curve_empty_when_nothing_closed():
+    journal_repo.save_signal(_signal())  # still OPEN, shouldn't appear
+    assert journal_repo.equity_curve() == []
+
+
+def test_equity_curve_is_chronological_and_cumulative():
+    import datetime as dt
+
+    id_a = journal_repo.save_signal(_signal(symbol="BTCUSDT"))
+    id_b = journal_repo.save_signal(_signal(symbol="ETHUSDT"))
+
+    later = dt.datetime(2024, 2, 1, tzinfo=dt.timezone.utc)
+    earlier = dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc)
+    # Close B (a loss) with an EARLIER closed_at than A (a win), saved in
+    # reverse chronological order, to prove the curve sorts by closed_at
+    # rather than insertion order.
+    journal_repo.close_signal(id_b, "STOP_HIT", 0.5, 3.0, 60.0, earlier)
+    journal_repo.close_signal(id_a, "TARGET_HIT", 6.0, 1.0, 120.0, later)
+
+    curve = journal_repo.equity_curve()
+    assert [p["symbol"] for p in curve] == ["ETHUSDT", "BTCUSDT"]
+    assert curve[0]["trade_return_pct"] == -3.0  # risk_pct, loss
+    assert curve[1]["trade_return_pct"] == 6.0  # reward_pct, win
+    assert curve[1]["cumulative_return_pct"] == 3.0  # running total

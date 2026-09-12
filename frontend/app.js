@@ -27,6 +27,7 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     if (btn.dataset.tab === "journal") loadJournal();
     if (btn.dataset.tab === "performance") loadPerformance();
     if (btn.dataset.tab === "backtest") loadBacktestRuns();
+    if (btn.dataset.tab === "settings") loadSettings();
   });
 });
 
@@ -181,6 +182,14 @@ function renderSignalCard(signal) {
     card.appendChild(el("div", "warning-box", `⚠ ${signal.warning}`));
   }
 
+  if (signal.position_size) {
+    const ps = signal.position_size;
+    const box = el("div", "hist-prob-box");
+    box.innerHTML = `<b>Suggested size:</b> $${fmt(ps.position_size_usd, 2)} (~${fmt(ps.units, 6)} units) — ` +
+      `${fmt(ps.position_pct_of_portfolio, 1)}% of portfolio, risking $${fmt(ps.risk_amount_usd, 2)}`;
+    card.appendChild(box);
+  }
+
   const invalidation = el("div", "invalidation-box");
   invalidation.innerHTML = `<b>Invalidation:</b> ${fmt(signal.invalidation, 4)} — ${signal.invalidation_reason}<br/><b>Regime:</b> ${signal.regime_label}`;
   card.appendChild(invalidation);
@@ -259,6 +268,7 @@ async function loadPerformance() {
   const data = await res.json();
   const container = document.getElementById("performance-content");
   container.innerHTML = "";
+  renderEquityCurve();
 
   if (data.note) {
     container.appendChild(el("div", "empty-banner", `<div class="headline">No performance data yet</div><div>${data.note}</div>`));
@@ -442,6 +452,179 @@ async function loadBacktestRuns() {
     tbody.appendChild(tr);
   });
 }
+
+/* ---------------- equity curve ---------------- */
+async function renderEquityCurve() {
+  const container = document.getElementById("equity-curve-container");
+  container.innerHTML = "";
+  const res = await fetch(`${API}/api/performance/equity-curve`);
+  const data = await res.json();
+  const points = data.points || [];
+
+  if (points.length < 2) {
+    container.appendChild(
+      el("div", "chart-empty", points.length === 0
+        ? "No closed signals yet — the curve appears once paper trading or a backtest has real outcomes to plot."
+        : "Only one closed signal so far — need at least two points to draw a curve.")
+    );
+    return;
+  }
+
+  const W = 900, H = 220, PAD_L = 46, PAD_R = 16, PAD_T = 16, PAD_B = 28;
+  const values = points.map((p) => p.cumulative_return_pct);
+  const minV = Math.min(0, ...values);
+  const maxV = Math.max(0, ...values);
+  const range = maxV - minV || 1;
+
+  const x = (i) => PAD_L + (i / (points.length - 1)) * (W - PAD_L - PAD_R);
+  const y = (v) => PAD_T + (1 - (v - minV) / range) * (H - PAD_T - PAD_B);
+
+  const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.cumulative_return_pct).toFixed(1)}`).join(" ");
+  const zeroY = y(0);
+  const finalValue = values[values.length - 1];
+  const lineColor = finalValue >= 0 ? "var(--green)" : "var(--red)";
+  const dotColor = (r) => (r.result === "TARGET_HIT" ? "var(--green)" : r.result === "STOP_HIT" ? "var(--red)" : "var(--text-faint)");
+
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.style.width = "100%";
+  svg.style.height = "auto";
+  svg.style.overflow = "visible";
+
+  const zeroLine = document.createElementNS(svgNS, "line");
+  zeroLine.setAttribute("x1", PAD_L); zeroLine.setAttribute("x2", W - PAD_R);
+  zeroLine.setAttribute("y1", zeroY); zeroLine.setAttribute("y2", zeroY);
+  zeroLine.setAttribute("stroke", "var(--border)"); zeroLine.setAttribute("stroke-dasharray", "4 4");
+  svg.appendChild(zeroLine);
+
+  [minV, 0, maxV].forEach((v) => {
+    const label = document.createElementNS(svgNS, "text");
+    label.setAttribute("x", 4); label.setAttribute("y", y(v) + 4);
+    label.setAttribute("font-size", "10"); label.setAttribute("fill", "var(--text-faint)");
+    label.setAttribute("font-family", "var(--mono)");
+    label.textContent = `${v.toFixed(1)}%`;
+    svg.appendChild(label);
+  });
+
+  const path = document.createElementNS(svgNS, "path");
+  path.setAttribute("d", pathD);
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", lineColor);
+  path.setAttribute("stroke-width", "2");
+  svg.appendChild(path);
+
+  points.forEach((p, i) => {
+    const c = document.createElementNS(svgNS, "circle");
+    c.setAttribute("cx", x(i)); c.setAttribute("cy", y(p.cumulative_return_pct));
+    c.setAttribute("r", "3.5"); c.setAttribute("fill", dotColor(p));
+    const title = document.createElementNS(svgNS, "title");
+    title.textContent = `${p.symbol} · ${p.strategy} · ${p.result} (${p.trade_return_pct > 0 ? "+" : ""}${p.trade_return_pct}%) · cumulative ${p.cumulative_return_pct}%` +
+      (p.closed_at ? ` · ${new Date(p.closed_at).toLocaleString()}` : "");
+    c.appendChild(title);
+    svg.appendChild(c);
+  });
+
+  container.appendChild(svg);
+  const summary = el(
+    "div", "toast",
+    `${points.length} closed signals · cumulative return ${finalValue >= 0 ? "+" : ""}${finalValue.toFixed(2)}% (sum of independent per-trade % returns, not compounded)`
+  );
+  summary.style.marginTop = "8px";
+  container.appendChild(summary);
+}
+
+/* ---------------- settings ---------------- */
+const DAY_CODES = [["mon", "Mon"], ["tue", "Tue"], ["wed", "Wed"], ["thu", "Thu"], ["fri", "Fri"], ["sat", "Sat"], ["sun", "Sun"]];
+let selectedDays = new Set(DAY_CODES.map(([c]) => c));
+
+function renderDayToggles() {
+  const wrap = document.getElementById("set-hours-days");
+  wrap.innerHTML = "";
+  DAY_CODES.forEach(([code, label]) => {
+    const btn = el("div", `day-toggle${selectedDays.has(code) ? " active" : ""}`, label);
+    btn.addEventListener("click", () => {
+      if (selectedDays.has(code)) selectedDays.delete(code); else selectedDays.add(code);
+      renderDayToggles();
+    });
+    wrap.appendChild(btn);
+  });
+}
+
+async function loadSettings() {
+  const res = await fetch(`${API}/api/settings`);
+  const s = await res.json();
+
+  document.getElementById("set-telegram-token").value = s.telegram_bot_token || "";
+  document.getElementById("set-telegram-chat").value = s.telegram_chat_id || "";
+  document.getElementById("set-notify-min-score").value = s.notify_min_score;
+  document.getElementById("set-watchlist").value = (s.watchlist || []).join(",");
+  document.getElementById("set-score-watch").value = s.score_watch_min;
+  document.getElementById("set-score-hq").value = s.score_high_quality_min;
+  document.getElementById("set-score-exceptional").value = s.score_exceptional_min;
+  document.getElementById("set-scheduler-enabled").checked = !!s.enable_scheduler;
+  document.getElementById("set-scan-loop").value = s.scan_loop_minutes;
+  document.getElementById("set-monitor-loop").value = s.monitor_loop_minutes;
+  document.getElementById("set-hours-enabled").checked = !!s.trading_hours_enabled;
+  document.getElementById("set-hours-start").value = s.trading_hours_start;
+  document.getElementById("set-hours-end").value = s.trading_hours_end;
+  document.getElementById("set-hours-tz").value = s.trading_hours_timezone;
+  document.getElementById("set-portfolio-size").value = s.portfolio_size_usd;
+  document.getElementById("set-risk-per-trade").value = s.risk_per_trade_pct;
+
+  selectedDays = new Set(s.trading_days || []);
+  renderDayToggles();
+}
+
+async function saveSettings() {
+  const btn = document.getElementById("btn-save-settings");
+  const note = document.getElementById("settings-saved-note");
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner"></span>Saving…`;
+
+  const payload = {
+    telegram_bot_token: document.getElementById("set-telegram-token").value.trim() || null,
+    telegram_chat_id: document.getElementById("set-telegram-chat").value.trim() || null,
+    notify_min_score: Number(document.getElementById("set-notify-min-score").value),
+    watchlist: document.getElementById("set-watchlist").value.split(",").map((s) => s.trim()).filter(Boolean),
+    score_watch_min: Number(document.getElementById("set-score-watch").value),
+    score_high_quality_min: Number(document.getElementById("set-score-hq").value),
+    score_exceptional_min: Number(document.getElementById("set-score-exceptional").value),
+    enable_scheduler: document.getElementById("set-scheduler-enabled").checked,
+    scan_loop_minutes: Number(document.getElementById("set-scan-loop").value),
+    monitor_loop_minutes: Number(document.getElementById("set-monitor-loop").value),
+    trading_hours_enabled: document.getElementById("set-hours-enabled").checked,
+    trading_hours_start: document.getElementById("set-hours-start").value,
+    trading_hours_end: document.getElementById("set-hours-end").value,
+    trading_hours_timezone: document.getElementById("set-hours-tz").value.trim(),
+    trading_days: Array.from(selectedDays),
+    portfolio_size_usd: Number(document.getElementById("set-portfolio-size").value),
+    risk_per_trade_pct: Number(document.getElementById("set-risk-per-trade").value),
+  };
+
+  try {
+    const res = await fetch(`${API}/api/settings`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      note.textContent = `Failed: ${err.detail}`;
+      note.style.color = "var(--red)";
+    } else {
+      note.textContent = "Saved — takes effect immediately (scheduler changes within ~60s).";
+      note.style.color = "var(--green)";
+      loadConfig();
+    }
+  } catch (e) {
+    note.textContent = `Failed: ${e}`;
+    note.style.color = "var(--red)";
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = "Save Settings";
+    setTimeout(() => { note.textContent = ""; }, 6000);
+  }
+}
+document.getElementById("btn-save-settings").addEventListener("click", saveSettings);
 
 /* ---------------- init ---------------- */
 loadConfig();

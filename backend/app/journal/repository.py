@@ -137,7 +137,7 @@ def performance_summary() -> dict:
     """Aggregate performance strictly from CLOSED signals — an empty
     journal returns an honest empty summary, never fabricated stats."""
     with get_session() as session:
-        stmt = select(SignalRecord).where(SignalRecord.result != "OPEN")
+        stmt = select(SignalRecord).where(SignalRecord.result != "OPEN").order_by(SignalRecord.closed_at)
         closed = list(session.scalars(stmt))
 
     if not closed:
@@ -209,3 +209,30 @@ def performance_summary() -> dict:
         "by_strategy": by_strategy,
         "note": None,
     }
+
+
+def equity_curve() -> list[dict]:
+    """Chronological, per-closed-signal cumulative return series — real
+    outcomes only (paper-traded or backtested), plotted as they happened
+    over time so the dashboard can show whether the edge is actually
+    holding, not just an aggregate number. Empty until signals have closed."""
+    with get_session() as session:
+        stmt = select(SignalRecord).where(SignalRecord.result != "OPEN").order_by(SignalRecord.closed_at)
+        closed = list(session.scalars(stmt))
+
+    points = []
+    running = 0.0
+    for r in closed:
+        pct = r.reward_pct if r.result == "TARGET_HIT" else (-r.risk_pct if r.result == "STOP_HIT" else 0.0)
+        running += pct
+        points.append(
+            {
+                "closed_at": r.closed_at.isoformat() if r.closed_at else None,
+                "symbol": r.symbol,
+                "strategy": r.strategy,
+                "result": r.result,
+                "trade_return_pct": round(pct, 3),
+                "cumulative_return_pct": round(running, 3),
+            }
+        )
+    return points

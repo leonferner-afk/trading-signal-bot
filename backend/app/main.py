@@ -15,11 +15,14 @@ from fastapi.staticfiles import StaticFiles
 from app.backtest.engine import run_backtest
 from app.backtest.metrics import compute_metrics, entry_hour_timing_pattern
 from app.backtest.walk_forward import train_validation_oos_split, walk_forward_analysis
+from pydantic import BaseModel
+
 from app.config import settings
 from app.data.binance_client import BinanceClient, DataUnavailable
 from app.db import init_db
 from app.journal import repository as journal_repo
 from app.pipeline import historical_probability_for, record_and_notify_signals
+from app.runtime_settings import get_effective_settings, update_settings_overrides
 from app.scanner.scanner import enrich, run_scan
 from app.strategies import breakout, momentum, reversal
 
@@ -53,36 +56,103 @@ def health() -> dict:
 
 @app.get("/api/config")
 def get_config() -> dict:
+    live = get_effective_settings()
     return {
-        "watchlist": list(settings.watchlist),
+        "watchlist": list(live.watchlist),
         "scan_interval": settings.scan_interval,
-        "score_watch_min": settings.score_watch_min,
-        "score_high_quality_min": settings.score_high_quality_min,
-        "score_exceptional_min": settings.score_exceptional_min,
+        "score_watch_min": live.score_watch_min,
+        "score_high_quality_min": live.score_high_quality_min,
+        "score_exceptional_min": live.score_exceptional_min,
         "fee_bps": settings.fee_bps,
         "slippage_bps": settings.slippage_bps,
         "news_configured": settings.cryptopanic_api_key is not None,
         "webhook_configured": settings.notify_webhook_url is not None,
-        "telegram_configured": settings.telegram_bot_token is not None and settings.telegram_chat_id is not None,
-        "scheduler_enabled": settings.enable_scheduler,
-        "scan_loop_minutes": settings.scan_loop_minutes,
-        "monitor_loop_minutes": settings.monitor_loop_minutes,
-        "trading_hours_enabled": settings.trading_hours_enabled,
-        "trading_hours_start": settings.trading_hours_start,
-        "trading_hours_end": settings.trading_hours_end,
-        "trading_hours_timezone": settings.trading_hours_timezone,
-        "trading_days": list(settings.trading_days),
+        "telegram_configured": bool(live.telegram_bot_token and live.telegram_chat_id),
+        "scheduler_enabled": live.enable_scheduler,
+        "scan_loop_minutes": live.scan_loop_minutes,
+        "monitor_loop_minutes": live.monitor_loop_minutes,
+        "trading_hours_enabled": live.trading_hours_enabled,
+        "trading_hours_start": live.trading_hours_start,
+        "trading_hours_end": live.trading_hours_end,
+        "trading_hours_timezone": live.trading_hours_timezone,
+        "trading_days": list(live.trading_days),
+        "portfolio_size_usd": live.portfolio_size_usd,
+        "risk_per_trade_pct": live.risk_per_trade_pct,
     }
+
+
+class SettingsUpdate(BaseModel):
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+    watchlist: list[str] | None = None
+    notify_min_score: float | None = None
+    score_watch_min: float | None = None
+    score_high_quality_min: float | None = None
+    score_exceptional_min: float | None = None
+    enable_scheduler: bool | None = None
+    scan_loop_minutes: int | None = None
+    monitor_loop_minutes: int | None = None
+    trading_hours_enabled: bool | None = None
+    trading_hours_start: str | None = None
+    trading_hours_end: str | None = None
+    trading_hours_timezone: str | None = None
+    trading_days: list[str] | None = None
+    portfolio_size_usd: float | None = None
+    risk_per_trade_pct: float | None = None
+
+
+@app.get("/api/settings")
+def get_settings() -> dict:
+    live = get_effective_settings()
+    return {
+        "telegram_bot_token": live.telegram_bot_token,
+        "telegram_chat_id": live.telegram_chat_id,
+        "watchlist": list(live.watchlist),
+        "notify_min_score": live.notify_min_score,
+        "score_watch_min": live.score_watch_min,
+        "score_high_quality_min": live.score_high_quality_min,
+        "score_exceptional_min": live.score_exceptional_min,
+        "enable_scheduler": live.enable_scheduler,
+        "scan_loop_minutes": live.scan_loop_minutes,
+        "monitor_loop_minutes": live.monitor_loop_minutes,
+        "trading_hours_enabled": live.trading_hours_enabled,
+        "trading_hours_start": live.trading_hours_start,
+        "trading_hours_end": live.trading_hours_end,
+        "trading_hours_timezone": live.trading_hours_timezone,
+        "trading_days": list(live.trading_days),
+        "portfolio_size_usd": live.portfolio_size_usd,
+        "risk_per_trade_pct": live.risk_per_trade_pct,
+        "overridden_fields": list(live.overridden_fields),
+    }
+
+
+@app.post("/api/settings")
+def post_settings(update: SettingsUpdate) -> dict:
+    """Only fields present in the request body are changed — a field set
+    to null clears that override back to the .env default. Takes effect
+    immediately; the scheduler loops pick up cadence/enabled changes
+    within ~60s, everything else on the next scan/notification."""
+    payload = update.model_dump(exclude_unset=True)
+    try:
+        update_settings_overrides(**payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return get_settings()
 
 
 @app.post("/api/scan")
 def scan() -> dict:
+    from dataclasses import asdict
+
+    from app.risk.position_sizing import compute_position_size
+
     try:
         result = run_scan()
     except DataUnavailable as exc:
         raise HTTPException(status_code=502, detail=f"Market data unavailable: {exc}") from exc
 
     notify_outcomes = record_and_notify_signals(result.signals)
+    live = get_effective_settings()
 
     return {
         "scanned_at": result.scanned_at,
@@ -109,6 +179,8 @@ def scan() -> dict:
                 "breakdown": s.breakdown.__dict__,
                 "warning": s.warning,
                 "historical_probability": historical_probability_for(s.symbol, s.strategy),
+                "position_size": asdict(compute_position_size(s.entry, s.stop, live.portfolio_size_usd, live.risk_per_trade_pct))
+                if s.direction == "LONG" else None,
             }
             for s in result.signals
         ],
@@ -177,6 +249,11 @@ def journal(limit: int = Query(200, ge=1, le=1000)) -> dict:
 @app.get("/api/performance")
 def performance() -> dict:
     return journal_repo.performance_summary()
+
+
+@app.get("/api/performance/equity-curve")
+def equity_curve() -> dict:
+    return {"points": journal_repo.equity_curve()}
 
 
 @app.post("/api/paper-trading/update")

@@ -72,6 +72,43 @@ class BacktestRun(Base):
     timing_pattern_json: Mapped[str] = mapped_column(JSON, default="{}")
 
 
+class AppSettingsRow(Base):
+    """Single-row table (id fixed to 1) of user-editable runtime overrides.
+
+    Every column is nullable — NULL means "use the .env / default value".
+    This lets day-to-day config (Telegram credentials, watchlist, trading
+    hours, thresholds) be changed from the dashboard's Settings tab without
+    editing files or restarting the process, while .env stays the
+    source of truth for anything the user hasn't explicitly overridden.
+    """
+    __tablename__ = "app_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc))
+
+    telegram_bot_token: Mapped[str | None] = mapped_column(String, nullable=True)
+    telegram_chat_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    watchlist_csv: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    notify_min_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    score_watch_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    score_high_quality_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    score_exceptional_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    enable_scheduler: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    scan_loop_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    monitor_loop_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    trading_hours_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    trading_hours_start: Mapped[str | None] = mapped_column(String, nullable=True)
+    trading_hours_end: Mapped[str | None] = mapped_column(String, nullable=True)
+    trading_hours_timezone: Mapped[str | None] = mapped_column(String, nullable=True)
+    trading_days_csv: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    portfolio_size_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    risk_per_trade_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
 _engine = create_engine(f"sqlite:///{settings.db_path}", future=True)
 SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
 

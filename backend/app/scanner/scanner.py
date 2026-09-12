@@ -90,7 +90,9 @@ def scan_symbol(client: BinanceClient, symbol: str, interval: str) -> tuple[pd.D
 
 
 def run_scan(watchlist: list[str] | None = None, interval: str | None = None) -> ScanResult:
-    watchlist = watchlist or list(settings.watchlist)
+    from app.runtime_settings import get_effective_settings
+
+    watchlist = watchlist or list(get_effective_settings().watchlist)
     interval = interval or settings.scan_interval
     scanned_at = dt.datetime.now(dt.timezone.utc).isoformat()
 

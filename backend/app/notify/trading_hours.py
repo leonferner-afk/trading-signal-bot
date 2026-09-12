@@ -13,7 +13,7 @@ from __future__ import annotations
 import datetime as dt
 from zoneinfo import ZoneInfo
 
-from app.config import settings
+from app.runtime_settings import get_effective_settings
 
 _DAY_CODES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
@@ -36,15 +36,16 @@ def is_within_trading_hours(
     when the gate is disabled (the default — crypto trades 24/7, so there
     is no gate unless the user explicitly configures one).
 
-    Every parameter defaults to the live config (`app.config.settings`);
-    they're only exposed so tests can exercise specific configurations
-    without mutating global settings.
+    Every parameter defaults to the live effective settings (env + any
+    dashboard Settings-tab override); they're only exposed so tests can
+    exercise specific configurations without touching the DB.
     """
-    enabled = settings.trading_hours_enabled if enabled is None else enabled
+    live = get_effective_settings()
+    enabled = live.trading_hours_enabled if enabled is None else enabled
     if not enabled:
         return True
 
-    timezone_name = timezone_name or settings.trading_hours_timezone
+    timezone_name = timezone_name or live.trading_hours_timezone
     now_utc = now_utc or dt.datetime.now(dt.timezone.utc)
     try:
         local_now = now_utc.astimezone(ZoneInfo(timezone_name))
@@ -53,13 +54,13 @@ def is_within_trading_hours(
         # notification — fail open.
         return True
 
-    days = days if days is not None else settings.trading_days
+    days = days if days is not None else live.trading_days
     day_code = _DAY_CODES[local_now.weekday()]
     if day_code not in days:
         return False
 
-    start_t = _parse_hhmm(start or settings.trading_hours_start)
-    end_t = _parse_hhmm(end or settings.trading_hours_end)
+    start_t = _parse_hhmm(start or live.trading_hours_start)
+    end_t = _parse_hhmm(end or live.trading_hours_end)
     now_t = local_now.time()
 
     if start_t <= end_t:

@@ -42,6 +42,12 @@ def _format_holding_duration(minutes: float) -> str:
 
 
 def format_entry_message(signal: Signal, historical_probability: dict | None = None) -> str:
+    from app.risk.position_sizing import compute_position_size
+    from app.runtime_settings import get_effective_settings
+
+    live = get_effective_settings()
+    size = compute_position_size(signal.entry, signal.stop, live.portfolio_size_usd, live.risk_per_trade_pct)
+
     lines = [
         "🟢 KÖP NU",
         "",
@@ -52,6 +58,10 @@ def format_entry_message(signal: Signal, historical_probability: dict | None = N
         f"Target: {signal.target:g}  (+{signal.reward_pct:.2f}%)",
         f"Stop: {signal.stop:g}  (-{signal.risk_pct:.2f}%)",
         f"R/R: {signal.rr_ratio:.2f}",
+        "",
+        f"Föreslagen position: ${size.position_size_usd:,.2f} (~{size.units:g} st) "
+        f"— {size.position_pct_of_portfolio:.1f}% av portföljen, risk ${size.risk_amount_usd:,.2f} "
+        f"({live.risk_per_trade_pct:.1f}% regel, portfölj ${live.portfolio_size_usd:,.0f})",
         "",
         "Varför:",
     ]
@@ -130,7 +140,9 @@ def notify_entry(signal: Signal, historical_probability: dict | None = None, *, 
     (not necessarily that it succeeded — Telegram delivery failures are
     logged, not raised). `min_score` overrides settings.notify_min_score —
     exposed for tests, production callers should omit it."""
-    min_score = settings.notify_min_score if min_score is None else min_score
+    from app.runtime_settings import get_effective_settings
+
+    min_score = get_effective_settings().notify_min_score if min_score is None else min_score
     if signal.direction != "LONG":
         return False
     if signal.score < min_score:
