@@ -18,10 +18,12 @@ set of columns.
 """
 from __future__ import annotations
 
+import io
 import math
 import time
 from dataclasses import dataclass
 
+import httpx
 import pandas as pd
 import yfinance as yf
 from curl_cffi import requests as curl_requests
@@ -58,6 +60,37 @@ def _period_for(interval: str, limit: int) -> str:
     # for weekends/holidays already excluded from that count.
     years = min(max(1, math.ceil(limit / 200)), 25)
     return f"{years}y"
+
+
+def _rows_from_dataframe(df: pd.DataFrame, column_map: dict[str, str], limit: int) -> pd.DataFrame:
+    df = df.rename(columns=column_map)
+    df["close_time"] = pd.to_datetime(df["close_time"], utc=True)
+    df["open_time"] = df["close_time"]
+    df = df[REQUIRED_COLUMNS].dropna(subset=["open", "high", "low", "close", "volume"])
+    if df.empty:
+        raise RuntimeError("no usable rows")
+    df = df.tail(limit).reset_index(drop=True)
+    return df.set_index("close_time", drop=False)
+
+
+def _fetch_stooq_daily(symbol: str, limit: int) -> pd.DataFrame:
+    """Fallback for daily bars, used only once Yahoo has failed outright.
+    Stooq is a completely separate, key-free CSV data source — an
+    IP-level block or outage on Yahoo's side doesn't take this down too.
+    Daily-only (no intraday history), which matches how this app actually
+    scans (1d bars) so the fallback covers the real usage."""
+    url = f"https://stooq.com/q/d/l/?s={symbol.lower()}.us&i=d"
+    resp = httpx.get(url, timeout=15.0, follow_redirects=True)
+    resp.raise_for_status()
+    text = resp.text.strip()
+    if not text or "Date" not in text.splitlines()[0]:
+        raise RuntimeError(f"stooq: no data for {symbol}")
+    df = pd.read_csv(io.StringIO(text))
+    return _rows_from_dataframe(
+        df,
+        {"Date": "close_time", "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"},
+        limit,
+    )
 
 
 @dataclass
@@ -101,6 +134,19 @@ class StockClient:
         back to it, `backtest/engine.py`, only for the otherwise-unused
         very first bar of a series).
         """
+        try:
+            return self._fetch_yfinance(symbol, interval, limit)
+        except DataUnavailable as exc:
+            if interval != "1d":
+                raise
+            try:
+                return _fetch_stooq_daily(symbol, limit)
+            except Exception as stooq_exc:
+                raise DataUnavailable(
+                    f"both data providers failed for {symbol} {interval} — yfinance: {exc}; stooq: {stooq_exc}"
+                ) from stooq_exc
+
+    def _fetch_yfinance(self, symbol: str, interval: str, limit: int) -> pd.DataFrame:
         period = _period_for(interval, limit)
         last_error: Exception | None = None
         for attempt in range(1, self.max_retries + 1):
@@ -114,24 +160,11 @@ class StockClient:
 
                 df = raw.reset_index()
                 date_col = "Date" if "Date" in df.columns else "Datetime"
-                df = df.rename(
-                    columns={
-                        date_col: "close_time",
-                        "Open": "open",
-                        "High": "high",
-                        "Low": "low",
-                        "Close": "close",
-                        "Volume": "volume",
-                    }
+                return _rows_from_dataframe(
+                    df,
+                    {date_col: "close_time", "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"},
+                    limit,
                 )
-                df["close_time"] = pd.to_datetime(df["close_time"], utc=True)
-                df["open_time"] = df["close_time"]
-                df = df[REQUIRED_COLUMNS].dropna(subset=["open", "high", "low", "close", "volume"])
-                if df.empty:
-                    raise RuntimeError(f"no usable rows for {symbol} {interval}")
-
-                df = df.tail(limit).reset_index(drop=True)
-                return df.set_index("close_time", drop=False)
             except Exception as exc:  # yfinance surfaces requests/HTTP/JSON errors (and our own empty-response/no-rows signals), not one clean type
                 last_error = exc
                 if attempt < self.max_retries:

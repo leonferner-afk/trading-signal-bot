@@ -31,7 +31,13 @@ tier allows 25 requests/day (unusable for scanning a watchlist); Finnhub's
 free tier no longer includes stock candles. `yfinance` is unofficial —
 there's no published SLA — so the client (`app/data/stock_client.py`)
 leans harder on retries and an explicit `DataUnavailable` escape hatch
-than an official API would need.
+than an official API would need. It also impersonates a real browser's
+TLS handshake (`curl_cffi`), since Yahoo has been tightening anti-bot
+defenses that otherwise return empty responses to plain HTTP clients on
+shared cloud-host IPs. For daily bars specifically, if Yahoo still fails
+after retries the client falls back to Stooq's free CSV export — a
+different, key-free provider, so a Yahoo-side block or outage doesn't
+take the whole app down with it.
 
 **Honest tradeoff of the $0 data budget**: this scans a *watchlist*
 (`app/config.py` / the Settings tab), not the whole market. A real
