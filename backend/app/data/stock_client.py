@@ -112,7 +112,7 @@ def _fetch_stooq_daily(symbol: str, limit: int) -> pd.DataFrame:
     resp.raise_for_status()
     text = resp.text.strip()
     if not text or "Date" not in text.splitlines()[0]:
-        raise RuntimeError(f"stooq: no data for {symbol}")
+        raise RuntimeError(f"stooq: unexpected response for {symbol}: {text[:200]!r}")
     df = pd.read_csv(io.StringIO(text))
     return _rows_from_dataframe(
         df,
