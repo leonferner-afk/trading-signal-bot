@@ -24,6 +24,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 import yfinance as yf
+from curl_cffi import requests as curl_requests
 
 from app.config import settings
 
@@ -67,6 +68,11 @@ class StockClient:
 
     def __post_init__(self) -> None:
         self._last_request_at = 0.0
+        # Yahoo's chart endpoint increasingly blocks/empties requests whose
+        # TLS fingerprint doesn't look like a real browser — common on
+        # shared cloud-host IPs (Railway, AWS, ...). curl_cffi impersonates
+        # Chrome's TLS handshake, which a plain `requests` session can't.
+        self._session = curl_requests.Session(impersonate="chrome")
 
     def __enter__(self) -> "StockClient":
         return self
@@ -101,7 +107,7 @@ class StockClient:
             self._throttle()
             try:
                 self._last_request_at = time.monotonic()
-                ticker = yf.Ticker(symbol.upper())
+                ticker = yf.Ticker(symbol.upper(), session=self._session)
                 raw = ticker.history(period=period, interval=interval, auto_adjust=True)
                 if raw is None or raw.empty:
                     raise RuntimeError(f"empty response for {symbol} {interval}")
