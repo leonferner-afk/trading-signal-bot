@@ -18,6 +18,7 @@ set of columns.
 """
 from __future__ import annotations
 
+import datetime as dt
 import io
 import math
 import time
@@ -79,8 +80,16 @@ def _fetch_stooq_daily(symbol: str, limit: int) -> pd.DataFrame:
     IP-level block or outage on Yahoo's side doesn't take this down too.
     Daily-only (no intraday history), which matches how this app actually
     scans (1d bars) so the fallback covers the real usage."""
-    url = f"https://stooq.com/q/d/l/?s={symbol.lower()}.us&i=d"
-    resp = httpx.get(url, timeout=15.0, follow_redirects=True)
+    years = min(max(1, math.ceil(limit / 200)), 25)
+    end = dt.date.today()
+    start = end - dt.timedelta(days=years * 366)
+    params = {
+        "s": f"{symbol.lower()}.us",
+        "d1": start.strftime("%Y%m%d"),
+        "d2": end.strftime("%Y%m%d"),
+        "i": "d",
+    }
+    resp = httpx.get("https://stooq.com/q/d/l/", params=params, timeout=15.0, follow_redirects=True)
     resp.raise_for_status()
     text = resp.text.strip()
     if not text or "Date" not in text.splitlines()[0]:
