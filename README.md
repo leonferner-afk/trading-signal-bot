@@ -76,9 +76,10 @@ MARKET SCAN → CANDIDATES → MULTI-FACTOR ANALYSIS → RISK/REWARD
 ```
 backend/app/
   data/            stock_client.py (Yahoo Finance via yfinance, real,
-                    no key needed) + news_client.py (provider-agnostic
-                    catalyst scoring types — no source wired up yet,
-                    see below)
+                    no key needed) + earnings_calendar.py (next scheduled
+                    earnings date, additive-only warning) +
+                    news_client.py (provider-agnostic catalyst scoring
+                    types — no source wired up yet, see below)
   features/        indicators.py (EMA/SMA/VWAP/RSI/MACD/ATR/ADX/Bollinger),
                     volume.py (relative volume, volume trend),
                     structure.py (swing points, S/R, breakout, trend structure)
@@ -198,6 +199,12 @@ effect without restarting the process.
 - **Missing news ≠ good news.** No stock news/catalyst provider is wired
   up yet (see "What's intentionally minimal" below) — catalyst always
   scores 0/10 with an explicit reason, never assumed positive.
+- **Earnings-date risk is surfaced, never asserted absent.** If a
+  qualifying LONG signal's ~1-month holding window would span a scheduled
+  earnings report (`app/data/earnings_calendar.py`), a warning is added —
+  real gap risk a swing position can't out-ATR. A missing warning means
+  "no near-term date found or the lookup failed," never "confirmed clear
+  of earnings" — it's additive-only by design.
 - **"Aggressive move" targets are flagged, never hidden or capped away.**
   Targets scale with the stock's *own* ATR (up to 10x its daily range —
   deliberately wide, since this system is meant to size a real "could
@@ -312,10 +319,16 @@ enormous system with fake functionality":
    history.
 3. Retire or re-tune anything that doesn't hold up out-of-sample, rather
    than adding more strategies on top of unproven ones.
-4. If budget changes: a paid screener API (Polygon.io, Twelve Data) to
+4. **A real stock news/catalyst source** (Finnhub's free-tier company-news
+   endpoint — 2-minute signup, no cost) is the next-cheapest upgrade:
+   catalyst currently always scores 0/10, and news/earnings surprises are
+   often the actual trigger behind the large moves this system hunts for.
+   `app/data/news_client.py`'s scoring logic is already provider-agnostic,
+   so this is a matter of adding one fetch function, not a rewrite.
+5. If budget changes: a paid screener API (Polygon.io, Twelve Data) to
    scan the full market instead of a curated watchlist — meaningfully
-   widens the net for rare, large-move setups. A real stock news/catalyst
-   source is the next-cheapest upgrade (Finnhub free tier).
+   widens the net for rare, large-move setups beyond the current ~50-name
+   list.
 
 ## Absolute rules this system follows
 

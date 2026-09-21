@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from app.config import settings
+from app.data.earnings_calendar import earnings_warning
 from app.data.news_client import NewsResult
 from app.data.stock_client import DataUnavailable, StockClient
 from app.features.indicators import compute_indicator_set
@@ -135,12 +136,11 @@ def run_scan(watchlist: list[str] | None = None, interval: str | None = None) ->
                 candidate = strategy_module.generate(df, symbol)
                 if candidate is None:
                     continue
-                # No stock news provider is wired up yet (CryptoPanic, still
-                # imported below, was the crypto version's source and
-                # doesn't cover equities) — catalyst score is honestly 0/10
-                # rather than pretending a crypto news feed applies here.
-                # A natural zero/low-cost upgrade: Finnhub's free-tier
-                # company-news endpoint.
+                # No stock news provider is wired up yet (the crypto
+                # version used CryptoPanic, which doesn't cover equities) —
+                # catalyst score is honestly 0/10 rather than pretending a
+                # crypto news feed applies here. A natural zero/low-cost
+                # upgrade: Finnhub's free-tier company-news endpoint.
                 news: NewsResult = NewsResult(
                     symbol=symbol, available=False, reason="no stock news provider configured yet"
                 )
@@ -159,6 +159,15 @@ def run_scan(watchlist: list[str] | None = None, interval: str | None = None) ->
                     {"symbol": symbol, "reason": f"best candidate scored {best_signal.score:.1f}/100 (below watch threshold)", "regime": snapshot.label}
                 )
                 continue
+
+            # Only worth an extra lookup for signals that actually qualify.
+            # Additive only — a missing warning never means "confirmed no
+            # earnings," it means the calendar lookup found nothing/failed.
+            if best_signal.direction == "LONG":
+                earnings_note = earnings_warning(symbol)
+                if earnings_note:
+                    best_signal.reasons.append(f"⚠ {earnings_note}")
+                    best_signal.warning = f"{best_signal.warning} | {earnings_note}" if best_signal.warning else earnings_note
 
             signals.append(best_signal)
 

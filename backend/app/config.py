@@ -31,17 +31,22 @@ class Settings:
     max_data_age_seconds: int = int(os.getenv("MAX_DATA_AGE_SECONDS", str(5 * 24 * 3600)))
 
     # Starting watchlist — liquid, historically volatile US growth/momentum
-    # names spanning several sectors, meant as an editable starting point
-    # (change it in Settings), not a curated "best picks" endorsement. With
-    # $0 data budget this project scans a watchlist, not the whole market —
-    # see README for the honest tradeoff and the upgrade path.
+    # names spanning several sectors (semis/AI, EV, biotech, fintech,
+    # crypto-adjacent, cybersecurity, space), meant as an editable starting
+    # point (change it in Settings), not a curated "best picks"
+    # endorsement. Widened from an initial ~24 to ~50 names to meaningfully
+    # increase the odds of catching a rare large mover somewhere in the
+    # list, while staying liquid enough for reliable daily data — still a
+    # watchlist, not the whole market, at $0 data budget; see README.
     watchlist: tuple[str, ...] = field(
         default_factory=lambda: tuple(
             _split_csv(
                 os.getenv(
                     "WATCHLIST",
                     "NVDA,TSLA,AMD,PLTR,SMCI,MSTR,COIN,SOFI,RBLX,DKNG,CVNA,UPST,"
-                    "AFRM,HOOD,RIVN,MARA,RIOT,IONQ,ARM,CRWD,NET,SNOW,SHOP,ROKU",
+                    "AFRM,HOOD,RIVN,MARA,RIOT,IONQ,ARM,CRWD,NET,SNOW,SHOP,ROKU,"
+                    "MU,MRVL,ON,MRNA,NVAX,CRSP,NTLA,NIO,LI,XPEV,ENPH,PLUG,FSLR,"
+                    "SQ,OKTA,RKLB,CHWY,ETSY,W,CLSK,HUT,AI,SOUN,BBAI,BEAM,EDIT",
                 )
             )
         )
