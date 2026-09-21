@@ -21,7 +21,7 @@ def _breakdown(total: float) -> ScoreBreakdown:
 
 def _signal(direction="LONG", score=85.0) -> Signal:
     return Signal(
-        symbol="BTCUSDT", strategy="breakout", direction=direction, timestamp="2024-01-01T00:00:00Z",
+        symbol="AAPL", strategy="breakout", direction=direction, timestamp="2024-01-01T00:00:00Z",
         entry=100.0, stop=97.0, target=106.0, risk_pct=3.0, reward_pct=6.0, rr_ratio=2.0,
         invalidation=97.0, invalidation_reason="ATR x1.5", target_reason="ATR x3",
         realistic=True, warning=None, score=score, tier="HIGH_QUALITY", breakdown=_breakdown(score),
@@ -41,7 +41,7 @@ def stub_delivery(monkeypatch):
 def test_entry_message_says_kop_nu():
     msg = notifier.format_entry_message(_signal())
     assert msg.startswith("🟢 KÖP NU")
-    assert "BTCUSDT" in msg
+    assert "AAPL" in msg
     assert "Target: 106" in msg
 
 
@@ -73,7 +73,7 @@ def test_notify_entry_respects_quiet_hours_gate(stub_delivery, monkeypatch):
 
 def _record(direction="LONG") -> SignalRecord:
     r = SignalRecord()
-    r.symbol = "BTCUSDT"
+    r.symbol = "AAPL"
     r.direction = direction
     r.strategy = "breakout"
     r.entry = 100.0

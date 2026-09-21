@@ -5,9 +5,9 @@ Two independent axes are classified per bar:
   - volatility regime:  HIGH_VOLATILITY / NORMAL_VOLATILITY / LOW_VOLATILITY
 
 A third, market-wide axis (RISK_ON / RISK_OFF / NEUTRAL) is derived from
-the anchor asset's (BTC) own trend regime, since in crypto BTC's trend is
-the standard proxy for broad risk appetite — this is a real, if simple,
-heuristic, not a fabricated signal.
+the anchor asset's (SPY, the S&P 500 ETF) own trend regime, since the
+broad index's trend is the standard proxy for market-wide risk appetite —
+this is a real, if simple, heuristic, not a fabricated signal.
 
 Every strategy then gets a `regime_fit` score (0-10) telling the scoring
 engine how well its own logic matches the *current* regime, so e.g. a
@@ -106,7 +106,7 @@ def latest_snapshot(df: pd.DataFrame) -> RegimeSnapshot | None:
 
 
 def market_wide_risk_regime(anchor_snapshot: RegimeSnapshot | None) -> str:
-    """Derive RISK_ON / RISK_OFF / NEUTRAL from the anchor asset's (BTC)
+    """Derive RISK_ON / RISK_OFF / NEUTRAL from the anchor asset's (SPY)
     trend regime. Returns NEUTRAL if the anchor snapshot is unavailable —
     never guesses."""
     if anchor_snapshot is None:

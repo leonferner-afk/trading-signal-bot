@@ -30,7 +30,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-MAX_HOLDING_BARS_DEFAULT = 48  # e.g. 48 hourly bars = 2 days, a sane intraday/swing cap
+MAX_HOLDING_BARS_DEFAULT = 90  # 90 daily bars ≈ 4-4.5 months — matches the swing/position horizon
 
 
 @dataclass

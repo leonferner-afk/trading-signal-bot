@@ -18,7 +18,7 @@ from app.backtest.walk_forward import train_validation_oos_split, walk_forward_a
 from pydantic import BaseModel
 
 from app.config import settings
-from app.data.binance_client import BinanceClient, DataUnavailable
+from app.data.stock_client import DataUnavailable, StockClient
 from app.db import init_db
 from app.journal import repository as journal_repo
 from app.pipeline import historical_probability_for, record_and_notify_signals
@@ -65,7 +65,7 @@ def get_config() -> dict:
         "score_exceptional_min": live.score_exceptional_min,
         "fee_bps": settings.fee_bps,
         "slippage_bps": settings.slippage_bps,
-        "news_configured": settings.cryptopanic_api_key is not None,
+        "news_configured": False,  # no stock news provider wired up yet — see app/data/news_client.py
         "webhook_configured": settings.notify_webhook_url is not None,
         "telegram_configured": bool(live.telegram_bot_token and live.telegram_chat_id),
         "scheduler_enabled": live.enable_scheduler,
@@ -267,14 +267,14 @@ def paper_trading_update() -> dict:
 def backtest_run(
     symbol: str = Query(...),
     strategy: str = Query(..., description="breakout | momentum | reversal"),
-    interval: str = Query("1h"),
+    interval: str = Query("1d"),
     limit: int = Query(1000, ge=210, le=1000),
 ) -> dict:
     if strategy not in STRATEGY_MODULES:
         raise HTTPException(status_code=400, detail=f"Unknown strategy '{strategy}'. Choose from {list(STRATEGY_MODULES)}.")
 
     try:
-        with BinanceClient() as client:
+        with StockClient() as client:
             raw = client.get_klines(symbol, interval, limit=limit)
     except DataUnavailable as exc:
         raise HTTPException(status_code=502, detail=f"Market data unavailable: {exc}") from exc

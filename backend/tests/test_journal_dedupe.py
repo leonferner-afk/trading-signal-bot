@@ -20,7 +20,7 @@ def isolated_db(monkeypatch):
     yield
 
 
-def _signal(symbol="BTCUSDT", strategy="breakout", direction="LONG") -> Signal:
+def _signal(symbol="AAPL", strategy="breakout", direction="LONG") -> Signal:
     breakdown = ScoreBreakdown(
         momentum=20, momentum_max=25, volume=15, volume_max=20, structure=15, structure_max=20,
         regime=10, regime_max=15, catalyst=0, catalyst_max=10, catalyst_reason="no data",
@@ -35,30 +35,30 @@ def _signal(symbol="BTCUSDT", strategy="breakout", direction="LONG") -> Signal:
 
 
 def test_no_open_signal_initially():
-    assert journal_repo.has_open_signal("BTCUSDT", "breakout", "LONG") is False
+    assert journal_repo.has_open_signal("AAPL", "breakout", "LONG") is False
 
 
 def test_has_open_signal_true_after_save():
     journal_repo.save_signal(_signal())
-    assert journal_repo.has_open_signal("BTCUSDT", "breakout", "LONG") is True
+    assert journal_repo.has_open_signal("AAPL", "breakout", "LONG") is True
 
 
 def test_dedupe_is_scoped_to_symbol_strategy_direction():
-    journal_repo.save_signal(_signal(symbol="BTCUSDT", strategy="breakout", direction="LONG"))
+    journal_repo.save_signal(_signal(symbol="AAPL", strategy="breakout", direction="LONG"))
     # A different strategy on the same symbol is a distinct setup.
-    assert journal_repo.has_open_signal("BTCUSDT", "momentum", "LONG") is False
+    assert journal_repo.has_open_signal("AAPL", "momentum", "LONG") is False
     # A different symbol entirely.
-    assert journal_repo.has_open_signal("ETHUSDT", "breakout", "LONG") is False
+    assert journal_repo.has_open_signal("TSLA", "breakout", "LONG") is False
 
 
 def test_dedupe_clears_once_signal_is_closed():
     signal_id = journal_repo.save_signal(_signal())
-    assert journal_repo.has_open_signal("BTCUSDT", "breakout", "LONG") is True
+    assert journal_repo.has_open_signal("AAPL", "breakout", "LONG") is True
 
     import datetime as dt
 
     journal_repo.close_signal(signal_id, "TARGET_HIT", 6.0, 1.0, 120.0, dt.datetime.now(dt.timezone.utc))
-    assert journal_repo.has_open_signal("BTCUSDT", "breakout", "LONG") is False
+    assert journal_repo.has_open_signal("AAPL", "breakout", "LONG") is False
 
 
 def test_equity_curve_empty_when_nothing_closed():
@@ -69,8 +69,8 @@ def test_equity_curve_empty_when_nothing_closed():
 def test_equity_curve_is_chronological_and_cumulative():
     import datetime as dt
 
-    id_a = journal_repo.save_signal(_signal(symbol="BTCUSDT"))
-    id_b = journal_repo.save_signal(_signal(symbol="ETHUSDT"))
+    id_a = journal_repo.save_signal(_signal(symbol="AAPL"))
+    id_b = journal_repo.save_signal(_signal(symbol="TSLA"))
 
     later = dt.datetime(2024, 2, 1, tzinfo=dt.timezone.utc)
     earlier = dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc)
@@ -81,7 +81,7 @@ def test_equity_curve_is_chronological_and_cumulative():
     journal_repo.close_signal(id_a, "TARGET_HIT", 6.0, 1.0, 120.0, later)
 
     curve = journal_repo.equity_curve()
-    assert [p["symbol"] for p in curve] == ["ETHUSDT", "BTCUSDT"]
+    assert [p["symbol"] for p in curve] == ["TSLA", "AAPL"]
     assert curve[0]["trade_return_pct"] == -3.0  # risk_pct, loss
     assert curve[1]["trade_return_pct"] == 6.0  # reward_pct, win
     assert curve[1]["cumulative_return_pct"] == 3.0  # running total

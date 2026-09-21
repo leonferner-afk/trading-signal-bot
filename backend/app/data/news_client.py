@@ -1,24 +1,22 @@
-"""Optional news/catalyst provider (CryptoPanic).
+"""News/catalyst scoring types (section 7) — provider-agnostic.
 
 This is intentionally the one component of the system explicitly allowed
 to come back empty: catalyst scoring is a small (0-10) part of the total
 score specifically so a missing news feed cannot look like a strong "no
 catalyst confirmed" negative signal, nor be silently treated as positive.
 
-If CRYPTOPANIC_API_KEY is not configured, `fetch_news` returns a
-`NewsResult` with `available=False` and an empty item list — callers MUST
-check `available` and must NOT assume good news when it is False.
+No stock news provider is wired up yet (the crypto version of this app
+used CryptoPanic, which doesn't cover equities) — `app.scanner.scanner`
+currently passes `NewsResult(available=False)` for every symbol, so
+catalyst always scores 0/10 with an honest reason rather than a guess.
+`NewsItem`/`NewsResult`/`catalyst_score` below stay provider-agnostic so
+wiring up a real source (e.g. Finnhub's free-tier company-news endpoint)
+is a matter of adding one `fetch_news()`-shaped function here and calling
+it from the scanner — not a rewrite of the scoring logic.
 """
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
-
-import httpx
-
-from app.config import settings
-
-CRYPTOPANIC_BASE_URL = "https://cryptopanic.com/api/v1/posts/"
 
 
 @dataclass
@@ -52,50 +50,6 @@ class NewsResult:
             except ValueError:
                 continue
         return min(ages) if ages else None
-
-
-def fetch_news(symbol: str, timeout: float = 10.0) -> NewsResult:
-    """Fetch recent news for the base currency of `symbol` (e.g. BTCUSDT
-    -> BTC). Returns available=False (never fabricated items) when no API
-    key is configured or the request fails.
-    """
-    if not settings.cryptopanic_api_key:
-        return NewsResult(
-            symbol=symbol,
-            available=False,
-            reason="CRYPTOPANIC_API_KEY not configured — no news data source connected",
-        )
-
-    currency = symbol.upper().replace("USDT", "").replace("USD", "").replace("BUSD", "")
-    try:
-        response = httpx.get(
-            CRYPTOPANIC_BASE_URL,
-            params={
-                "auth_token": settings.cryptopanic_api_key,
-                "currencies": currency,
-                "kind": "news",
-                "public": "true",
-            },
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except (httpx.HTTPError, httpx.TransportError, ValueError) as exc:
-        return NewsResult(symbol=symbol, available=False, reason=f"news request failed: {exc}")
-
-    results = payload.get("results", [])
-    items = [
-        NewsItem(
-            title=r.get("title", ""),
-            source=(r.get("source") or {}).get("title", "unknown"),
-            published_at=r.get("published_at", ""),
-            url=r.get("url", ""),
-            sentiment_votes_positive=int((r.get("votes") or {}).get("positive", 0)),
-            sentiment_votes_negative=int((r.get("votes") or {}).get("negative", 0)),
-        )
-        for r in results
-    ]
-    return NewsResult(symbol=symbol, available=True, items=items)
 
 
 def catalyst_score(news: NewsResult, direction: str) -> tuple[float, str]:

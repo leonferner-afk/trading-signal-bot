@@ -16,15 +16,22 @@ import datetime as dt
 import pandas as pd
 
 from app.config import settings
-from app.data.binance_client import BinanceClient, DataUnavailable
+from app.data.stock_client import DataUnavailable, StockClient
 from app.db import SignalRecord
 
-EXPIRY_HOURS = 48
+# Swing/position setups (weeks-to-a-few-months horizon, per the stock
+# concept) need far more runway than the old intraday-crypto default (was
+# 48h) — 90 days gives a real move room to develop before we call it a
+# non-event.
+EXPIRY_HOURS = 24 * 90
 
-_UNIT_MINUTES = {"m": 1, "h": 60, "d": 1440, "w": 10080}
+_UNIT_MINUTES = {"m": 1, "h": 60, "d": 1440, "wk": 10080, "mo": 43200}
 
 
 def _interval_to_minutes(interval: str) -> float:
+    for suffix in ("wk", "mo"):
+        if interval.endswith(suffix):
+            return float(interval[: -len(suffix)]) * _UNIT_MINUTES[suffix]
     unit = interval[-1]
     value = float(interval[:-1])
     return value * _UNIT_MINUTES.get(unit, 60)
@@ -37,7 +44,7 @@ def _parse_timestamp(value: str) -> dt.datetime:
     return ts.to_pydatetime()
 
 
-def evaluate_open_signal(client: BinanceClient, record: SignalRecord, interval: str) -> dict | None:
+def evaluate_open_signal(client: StockClient, record: SignalRecord, interval: str) -> dict | None:
     """Returns an update dict (result/mfe/mae/holding_minutes/closed_at) if
     the signal resolved or expired, or None if it should stay OPEN /
     could not be checked."""
@@ -110,7 +117,7 @@ def run_paper_trading_update(interval: str | None = None) -> dict:
     updated = []
     unavailable = []
 
-    with BinanceClient() as client:
+    with StockClient() as client:
         for record in open_records:
             update = evaluate_open_signal(client, record, interval)
             if update is None:

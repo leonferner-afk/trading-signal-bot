@@ -33,9 +33,9 @@ def test_override_persists_and_is_reported():
 
 
 def test_watchlist_list_is_converted_and_back():
-    update_settings_overrides(watchlist=["btcusdt", "ethusdt "])
+    update_settings_overrides(watchlist=["aapl", "tsla  "])
     live = get_effective_settings()
-    assert live.watchlist == ("BTCUSDT", "ETHUSDT")
+    assert live.watchlist == ("AAPL", "TSLA")
 
 
 def test_clearing_override_falls_back_to_default():

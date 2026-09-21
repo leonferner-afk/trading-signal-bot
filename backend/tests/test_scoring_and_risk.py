@@ -48,12 +48,25 @@ def test_risk_reward_short_stop_above_entry_target_below():
 
 
 def test_unrealistic_target_is_flagged_not_hidden():
-    # Deliberately huge ATR relative to price to force an outsized target.
-    candidate = _candidate(atr=25.0, close=100.0)
+    # Deliberately huge ATR relative to price (an extremely volatile,
+    # penny-stock-grade mover: ~10%/day) to push the target past the
+    # system's 80% caution threshold.
+    candidate = _candidate(atr=10.0, close=100.0)
     rr = compute_risk_reward(candidate)
-    assert rr.reward_pct > 15.0
+    assert rr.reward_pct > 80.0
     assert rr.realistic is False
     assert rr.warning is not None
+
+
+def test_big_but_not_extreme_target_is_not_flagged():
+    # A genuinely volatile stock (5%/day ATR) targeting a large (50%) move
+    # should NOT be flagged — that's exactly the kind of big-but-plausible
+    # setup this system is meant to surface, not suppress.
+    candidate = _candidate(atr=5.0, close=100.0)
+    rr = compute_risk_reward(candidate)
+    assert rr.reward_pct > 15.0
+    assert rr.realistic is True
+    assert rr.warning is None
 
 
 def test_tier_thresholds():

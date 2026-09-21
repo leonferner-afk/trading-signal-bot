@@ -3,8 +3,26 @@
 Entry/stop/target/invalidation are derived from the same real inputs used
 to generate the signal — ATR and the structural levels the strategy
 already identified — never a hardcoded percentage. If the resulting
-reward is not realistic for the asset's own volatility, that is surfaced
-as a warning and a poor risk/reward score, not silently inflated.
+reward is unrealistically large, that is surfaced as a warning and a
+poor risk/reward score, not silently inflated.
+
+Tuned for the swing/position-trade concept (daily bars, a
+few-weeks-to-a-few-months holding window, hunting for a handful of large
+moves rather than many small ones) — not the old intraday-crypto scalping
+calibration:
+
+  - TARGET_ATR_MULT is wide (10x the daily ATR) so a genuinely volatile
+    setup can size a target in the "could double in a month" range this
+    system is meant to hunt for (a stock with a ~10%/day ATR times 10 =
+    a 100% target) — real target_distance is always exactly this multiple
+    of ATR in practice (the MIN_ACCEPTABLE_RR floor and MAX_TARGET_ATR_MULT
+    ceiling exist as safety bounds but, given how tightly STOP_ATR_MULT
+    keeps risk_distance, don't bind under normal inputs).
+  - "Is this target realistic" is a fixed cap on the implied % move
+    (AGGRESSIVE_MOVE_PCT). Since target size scales with the asset's own
+    ATR%, this cap naturally only fires for the most extreme, penny-stock-
+    grade volatility — a deliberately high bar, not a limit on ordinary
+    big-mover targets.
 """
 from __future__ import annotations
 
@@ -14,10 +32,13 @@ from app.strategies.base import LONG, StrategyCandidate
 
 MIN_ACCEPTABLE_RR = 1.5
 STOP_ATR_MULT = 1.5
-TARGET_ATR_MULT = 3.0
+TARGET_ATR_MULT = 10.0
 STOP_BUFFER_ATR_MULT = 0.25
-MAX_TARGET_ATR_MULT = 8.0
-AGGRESSIVE_MOVE_PCT = 15.0
+MAX_TARGET_ATR_MULT = 30.0
+# A ~1-month-horizon target above this implied % move gets flagged — set
+# high on purpose (this system is explicitly hunting rare, large moves),
+# it only catches the most extreme cases (roughly: an 8%+ single-day ATR).
+AGGRESSIVE_MOVE_PCT = 80.0
 
 
 @dataclass
@@ -89,9 +110,12 @@ def compute_risk_reward(candidate: StrategyCandidate) -> RiskReward:
     realistic = reward_pct <= AGGRESSIVE_MOVE_PCT
     warning = None
     if not realistic:
+        atr_pct_daily = atr / entry * 100
         warning = (
-            f"Target implies a {reward_pct:.1f}% move, above this asset's typical realistic range "
-            f"({AGGRESSIVE_MOVE_PCT:.0f}%) for this timeframe — treat with caution, verify liquidity."
+            f"Target implies a {reward_pct:.1f}% move (this stock's own ATR is {atr_pct_daily:.1f}%/day) — "
+            f"above this system's {AGGRESSIVE_MOVE_PCT:.0f}% caution threshold. Extremely volatile setups like "
+            f"this are exactly what can produce a huge winner, but also carry the most liquidity/gap risk — "
+            f"verify both before sizing in."
         )
 
     # Risk/reward component (0-10): scales with RR ratio above the minimum

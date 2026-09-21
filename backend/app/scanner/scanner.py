@@ -16,8 +16,8 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from app.config import settings
-from app.data.binance_client import BinanceClient, DataUnavailable
-from app.data.news_client import NewsResult, fetch_news
+from app.data.news_client import NewsResult
+from app.data.stock_client import DataUnavailable, StockClient
 from app.features.indicators import compute_indicator_set
 from app.features.structure import compute_structure_features
 from app.features.volume import compute_volume_features
@@ -26,7 +26,10 @@ from app.scoring.score import NO_TRADE, Signal, build_signal
 from app.strategies import breakout, momentum, reversal
 
 STRATEGIES = (breakout, momentum, reversal)
-ANCHOR_SYMBOL = "BTCUSDT"
+# SPY (S&P 500 ETF) as the market-wide risk anchor — the standard equity
+# proxy for broad risk appetite, same role BTC played for the crypto
+# version of this scanner.
+ANCHOR_SYMBOL = "SPY"
 
 
 @dataclass
@@ -72,7 +75,7 @@ def enrich(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def scan_symbol(client: BinanceClient, symbol: str, interval: str) -> tuple[pd.DataFrame | None, str | None]:
+def scan_symbol(client: StockClient, symbol: str, interval: str) -> tuple[pd.DataFrame | None, str | None]:
     try:
         raw = client.get_klines(symbol, interval, limit=300)
     except DataUnavailable as exc:
@@ -100,7 +103,7 @@ def run_scan(watchlist: list[str] | None = None, interval: str | None = None) ->
     signals: list[Signal] = []
     no_trade_summary: list[dict] = []
 
-    with BinanceClient() as client:
+    with StockClient() as client:
         anchor_df, anchor_error = scan_symbol(client, ANCHOR_SYMBOL, interval)
         anchor_snapshot = latest_snapshot(anchor_df) if anchor_df is not None else None
         market_wide_risk = market_wide_risk_regime(anchor_snapshot)
@@ -132,8 +135,14 @@ def run_scan(watchlist: list[str] | None = None, interval: str | None = None) ->
                 candidate = strategy_module.generate(df, symbol)
                 if candidate is None:
                     continue
-                news: NewsResult = fetch_news(symbol) if settings.cryptopanic_api_key else NewsResult(
-                    symbol=symbol, available=False, reason="CRYPTOPANIC_API_KEY not configured"
+                # No stock news provider is wired up yet (CryptoPanic, still
+                # imported below, was the crypto version's source and
+                # doesn't cover equities) — catalyst score is honestly 0/10
+                # rather than pretending a crypto news feed applies here.
+                # A natural zero/low-cost upgrade: Finnhub's free-tier
+                # company-news endpoint.
+                news: NewsResult = NewsResult(
+                    symbol=symbol, available=False, reason="no stock news provider configured yet"
                 )
                 signal = build_signal(candidate, snapshot, news, market_wide_risk)
                 attempted_reasons.append(f"{candidate.strategy}: score {signal.score:.1f}/100 ({signal.tier})")

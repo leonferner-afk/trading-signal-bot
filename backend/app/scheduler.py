@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from app.data.binance_client import DataUnavailable
+from app.data.stock_client import DataUnavailable
 from app.pipeline import record_and_notify_signals
 from app.runtime_settings import get_effective_settings
 from app.scanner.scanner import run_scan
