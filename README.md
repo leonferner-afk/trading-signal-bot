@@ -34,10 +34,20 @@ leans harder on retries and an explicit `DataUnavailable` escape hatch
 than an official API would need. It also impersonates a real browser's
 TLS handshake (`curl_cffi`), since Yahoo has been tightening anti-bot
 defenses that otherwise return empty responses to plain HTTP clients on
-shared cloud-host IPs. For daily bars specifically, if Yahoo still fails
-after retries the client falls back to Stooq's free CSV export — a
-different, key-free provider, so a Yahoo-side block or outage doesn't
-take the whole app down with it.
+shared cloud-host IPs. For daily bars specifically, if Yahoo fails the
+client falls back to Stooq's free CSV export — a different, key-free
+provider, so a Yahoo-side block or outage doesn't take the whole app
+down with it.
+
+**If you deploy on a host whose outbound IP gets blocked by both**
+(observed on some cloud hosts — Yahoo and Stooq are both unofficial
+scrapers, and a shared egress IP can get blocked by both at once with no
+client-side fix): set `TWELVE_DATA_API_KEY` (free at
+[twelvedata.com](https://twelvedata.com), no card required, 800
+calls/day) and it becomes the primary daily-bar source, with
+Stooq -> Yahoo still there as a fallback if it's ever down or
+rate-limited. Without the key the app is unchanged — still $0, still
+key-free by default.
 
 **Honest tradeoff of the $0 data budget**: this scans a *watchlist*
 (`app/config.py` / the Settings tab), not the whole market. A real

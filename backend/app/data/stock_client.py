@@ -83,8 +83,40 @@ def _rows_from_dataframe(df: pd.DataFrame, column_map: dict[str, str], limit: in
     df = df[REQUIRED_COLUMNS].dropna(subset=["open", "high", "low", "close", "volume"])
     if df.empty:
         raise RuntimeError("no usable rows")
-    df = df.tail(limit).reset_index(drop=True)
+    # Sort ascending regardless of provider order — Yahoo/Stooq already are,
+    # but Twelve Data's JSON returns newest-first, and `tail(limit)` needs
+    # ascending order to keep the most recent bars rather than the oldest.
+    df = df.sort_values("close_time").tail(limit).reset_index(drop=True)
     return df.set_index("close_time", drop=False)
+
+
+def _fetch_twelvedata_daily(symbol: str, limit: int) -> pd.DataFrame:
+    """Primary daily-bar source when TWELVE_DATA_API_KEY is set. An
+    official, key-authenticated API — unlike Yahoo/Stooq (both unofficial
+    scrapers), it can't be silently blocked wholesale on a cloud host's
+    shared egress IP. Raises RuntimeError (never DataUnavailable directly
+    — that's the caller's job) so the Stooq/Yahoo chain still runs if this
+    fails for any reason (no key, rate limit, API outage)."""
+    api_key = settings.twelvedata_api_key
+    if not api_key:
+        raise RuntimeError("no Twelve Data API key configured")
+    params = {
+        "symbol": symbol.upper(),
+        "interval": "1day",
+        "outputsize": min(max(limit, 1), 5000),
+        "apikey": api_key,
+        "format": "JSON",
+    }
+    resp = httpx.get("https://api.twelvedata.com/time_series", params=params, timeout=15.0)
+    resp.raise_for_status()
+    payload = resp.json()
+    values = payload.get("values")
+    if payload.get("status") == "error" or not values:
+        raise RuntimeError(f"twelvedata: {payload.get('message', payload)}")
+    df = pd.DataFrame(values)
+    for col in ("open", "high", "low", "close", "volume"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    return _rows_from_dataframe(df, {"datetime": "close_time"}, limit)
 
 
 def _fetch_stooq_daily(symbol: str, limit: int) -> pd.DataFrame:
@@ -162,26 +194,40 @@ class StockClient:
         back to it, `backtest/engine.py`, only for the otherwise-unused
         very first bar of a series).
 
-        For daily bars — this app's only real usage (see config.py) — Stooq
-        is tried first and Yahoo second, not the other way round: on this
-        deployment's outbound IP, Yahoo has failed 100% of attempts across
-        several independent fixes (retries, TLS impersonation, User-Agent
-        alignment), consistent with a hard IP-level block rather than
-        something a request-shape tweak fixes. Trying it first on every
-        symbol only burns retries+backoff before falling through anyway.
-        Intraday intervals go to Yahoo only — Stooq has no intraday history.
+        For daily bars — this app's only real usage (see config.py) — the
+        provider order is Twelve Data (if TWELVE_DATA_API_KEY is set) ->
+        Stooq -> Yahoo, not Yahoo-first: on this deployment's outbound IP,
+        Yahoo *and* Stooq have both failed every attempt across several
+        independent fixes (retries, TLS impersonation, User-Agent
+        alignment, Stooq's own date-range requirement), consistent with a
+        cloud host's shared egress IP being blocked wholesale by both
+        unofficial scrapers — not something a request-shape tweak fixes.
+        Twelve Data is an official, key-authenticated API, so it doesn't
+        share that failure mode. Without a key configured, behavior is
+        unchanged (Stooq -> Yahoo, still $0/key-free).
+        Intraday intervals go to Yahoo only — none of the daily fallbacks
+        have intraday history.
         """
         if interval != "1d":
             return self._fetch_yfinance(symbol, interval, limit)
+
+        errors: list[str] = []
+        if settings.twelvedata_api_key:
+            try:
+                return _fetch_twelvedata_daily(symbol, limit)
+            except Exception as exc:
+                errors.append(f"twelvedata: {exc}")
         try:
             return _fetch_stooq_daily(symbol, limit)
-        except Exception as stooq_exc:
-            try:
-                return self._fetch_yfinance(symbol, interval, limit)
-            except DataUnavailable as yf_exc:
-                raise DataUnavailable(
-                    f"both data providers failed for {symbol} {interval} — stooq: {stooq_exc}; yfinance: {yf_exc}"
-                ) from yf_exc
+        except Exception as exc:
+            errors.append(f"stooq: {exc}")
+        try:
+            return self._fetch_yfinance(symbol, interval, limit)
+        except DataUnavailable as exc:
+            errors.append(f"yfinance: {exc}")
+            raise DataUnavailable(
+                f"all data providers failed for {symbol} {interval} — " + "; ".join(errors)
+            ) from exc
 
     def _fetch_yfinance(self, symbol: str, interval: str, limit: int) -> pd.DataFrame:
         period = _period_for(interval, limit)

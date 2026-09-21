@@ -2,13 +2,15 @@
 no network calls; `yf.Ticker` and `httpx.get` are monkeypatched with each
 of their known response shapes.
 
-For daily bars, Stooq is tried first and Yahoo (yfinance) second — see
-the comment on `get_klines` in stock_client.py for why. Intraday bars go
-to Yahoo only, since Stooq has no intraday history.
+For daily bars, the order is Twelve Data (if configured) -> Stooq ->
+Yahoo (yfinance) — see the comment on `get_klines` in stock_client.py for
+why. Intraday bars go to Yahoo only, since neither fallback has intraday
+history.
 """
 from __future__ import annotations
 
 import datetime as dt
+import types
 
 import pandas as pd
 import pytest
@@ -56,13 +58,21 @@ def _patch_ticker_unreachable(monkeypatch):
 
 
 class _FakeHttpResponse:
-    def __init__(self, text: str, status_ok: bool = True):
+    def __init__(self, text: str = "", status_ok: bool = True, json_data=None):
         self.text = text
         self._status_ok = status_ok
+        self._json_data = json_data
 
     def raise_for_status(self):
         if not self._status_ok:
-            raise RuntimeError("stooq http error")
+            raise RuntimeError("http error")
+
+    def json(self):
+        return self._json_data
+
+
+def _no_api_key(monkeypatch):
+    monkeypatch.setattr("app.data.stock_client.settings", types.SimpleNamespace(twelvedata_api_key=""))
 
 
 def _valid_stooq_csv() -> str:
@@ -146,3 +156,53 @@ def test_raises_dataunavailable_when_both_providers_fail(monkeypatch):
     client = _make_client()
     with pytest.raises(DataUnavailable):
         client.get_klines("AAPL", "1d", limit=5)
+
+
+def _valid_twelvedata_json() -> dict:
+    return {
+        "status": "ok",
+        "values": [
+            # Twelve Data returns newest-first — deliberately out of order
+            # here to exercise the ascending-sort fix.
+            {"datetime": "2024-01-02", "open": "1.1", "high": "2.1", "low": "0.6", "close": "1.6", "volume": "1100"},
+            {"datetime": "2024-01-01", "open": "1.0", "high": "2.0", "low": "0.5", "close": "1.5", "volume": "1000"},
+        ],
+    }
+
+
+def test_twelvedata_tried_first_when_configured_and_others_skipped(monkeypatch):
+    monkeypatch.setattr("app.data.stock_client.settings", types.SimpleNamespace(twelvedata_api_key="fake-key"))
+    _patch_ticker_unreachable(monkeypatch)
+
+    def _fake_get(url, **kwargs):
+        if "twelvedata" not in url:
+            raise AssertionError("stooq should not be called when Twelve Data succeeds")
+        return _FakeHttpResponse(json_data=_valid_twelvedata_json())
+
+    monkeypatch.setattr("app.data.stock_client.httpx.get", _fake_get)
+    client = _make_client()
+    df = client.get_klines("AAPL", "1d", limit=5)
+    # Ascending despite the provider's newest-first order.
+    assert list(df["close"]) == [1.5, 1.6]
+
+
+def test_twelvedata_not_called_without_api_key(monkeypatch):
+    _no_api_key(monkeypatch)
+    _patch_stooq_success(monkeypatch)
+    client = _make_client()
+    df = client.get_klines("AAPL", "1d", limit=5)
+    assert not df.empty  # Stooq served it directly, twelvedata never in the mix
+
+
+def test_falls_back_to_stooq_when_twelvedata_fails(monkeypatch):
+    monkeypatch.setattr("app.data.stock_client.settings", types.SimpleNamespace(twelvedata_api_key="fake-key"))
+
+    def _fake_get(url, **kwargs):
+        if "twelvedata" in url:
+            return _FakeHttpResponse(json_data={"status": "error", "message": "rate limit"})
+        return _FakeHttpResponse(text=_valid_stooq_csv())
+
+    monkeypatch.setattr("app.data.stock_client.httpx.get", _fake_get)
+    client = _make_client()
+    df = client.get_klines("AAPL", "1d", limit=5)
+    assert not df.empty

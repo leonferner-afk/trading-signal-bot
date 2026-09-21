@@ -24,6 +24,15 @@ class Settings:
     retry_backoff_seconds: float = float(os.getenv("HTTP_RETRY_BACKOFF_SECONDS", "0.5"))
     min_request_interval_seconds: float = float(os.getenv("HTTP_MIN_INTERVAL_SECONDS", "0.15"))
 
+    # Optional: a free Twelve Data API key (https://twelvedata.com, no
+    # card required, 800 calls/day). Yahoo and Stooq are both unofficial
+    # scrapers and can be blocked wholesale on a cloud host's shared
+    # egress IP with no client-side fix — an official, key-authenticated
+    # API doesn't have that failure mode. Used as the primary daily-bar
+    # source when set; the app still works $0/key-free without it via
+    # Stooq -> Yahoo, just less reliably on some hosts.
+    twelvedata_api_key: str = os.getenv("TWELVE_DATA_API_KEY", "")
+
     # How stale a candle close can be before the scanner refuses to score
     # it. Daily bars are timestamped at the trading day's date (not the
     # actual 4pm ET close), and markets are closed weekends/holidays, so
