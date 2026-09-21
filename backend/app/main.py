@@ -348,6 +348,6 @@ def backtest_runs() -> dict:
     }
 
 
-_frontend_dir = Path(__file__).resolve().parent.parent.parent / "frontend"
+_frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
 if _frontend_dir.exists():
     app.mount("/", StaticFiles(directory=str(_frontend_dir), html=True), name="frontend")
