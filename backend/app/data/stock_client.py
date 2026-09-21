@@ -211,12 +211,13 @@ class StockClient:
         if interval != "1d":
             return self._fetch_yfinance(symbol, interval, limit)
 
-        errors: list[str] = []
+        errors: list[str] = [f"twelvedata: no key configured (TWELVE_DATA_API_KEY not set on this deployment)"]
         if settings.twelvedata_api_key:
+            errors[0] = f"twelvedata: key detected ({len(settings.twelvedata_api_key)} chars)"
             try:
                 return _fetch_twelvedata_daily(symbol, limit)
             except Exception as exc:
-                errors.append(f"twelvedata: {exc}")
+                errors[0] = f"twelvedata: {exc}"
         try:
             return _fetch_stooq_daily(symbol, limit)
         except Exception as exc:
