@@ -161,18 +161,27 @@ class StockClient:
         distinct (see module docstring / the one call site that falls
         back to it, `backtest/engine.py`, only for the otherwise-unused
         very first bar of a series).
+
+        For daily bars — this app's only real usage (see config.py) — Stooq
+        is tried first and Yahoo second, not the other way round: on this
+        deployment's outbound IP, Yahoo has failed 100% of attempts across
+        several independent fixes (retries, TLS impersonation, User-Agent
+        alignment), consistent with a hard IP-level block rather than
+        something a request-shape tweak fixes. Trying it first on every
+        symbol only burns retries+backoff before falling through anyway.
+        Intraday intervals go to Yahoo only — Stooq has no intraday history.
         """
-        try:
+        if interval != "1d":
             return self._fetch_yfinance(symbol, interval, limit)
-        except DataUnavailable as exc:
-            if interval != "1d":
-                raise
+        try:
+            return _fetch_stooq_daily(symbol, limit)
+        except Exception as stooq_exc:
             try:
-                return _fetch_stooq_daily(symbol, limit)
-            except Exception as stooq_exc:
+                return self._fetch_yfinance(symbol, interval, limit)
+            except DataUnavailable as yf_exc:
                 raise DataUnavailable(
-                    f"both data providers failed for {symbol} {interval} — yfinance: {exc}; stooq: {stooq_exc}"
-                ) from stooq_exc
+                    f"both data providers failed for {symbol} {interval} — stooq: {stooq_exc}; yfinance: {yf_exc}"
+                ) from yf_exc
 
     def _fetch_yfinance(self, symbol: str, interval: str, limit: int) -> pd.DataFrame:
         period = _period_for(interval, limit)

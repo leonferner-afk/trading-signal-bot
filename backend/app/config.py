@@ -20,8 +20,8 @@ class Settings:
     # required, the only zero-cost option covering thousands of US
     # tickers). See app/data/stock_client.py for why.
     request_timeout_seconds: float = float(os.getenv("HTTP_TIMEOUT_SECONDS", "10"))
-    max_retries: int = int(os.getenv("HTTP_MAX_RETRIES", "3"))
-    retry_backoff_seconds: float = float(os.getenv("HTTP_RETRY_BACKOFF_SECONDS", "1.0"))
+    max_retries: int = int(os.getenv("HTTP_MAX_RETRIES", "2"))
+    retry_backoff_seconds: float = float(os.getenv("HTTP_RETRY_BACKOFF_SECONDS", "0.5"))
     min_request_interval_seconds: float = float(os.getenv("HTTP_MIN_INTERVAL_SECONDS", "0.15"))
 
     # How stale a candle close can be before the scanner refuses to score
