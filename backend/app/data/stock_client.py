@@ -31,6 +31,19 @@ from curl_cffi import requests as curl_requests
 
 from app.config import settings
 
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
+# yfinance hardcodes a 2014-era Chrome User-Agent on every Yahoo request
+# (yfinance.data.YfData.user_agent_headers). Left as-is, that header
+# clashes with curl_cffi's modern Chrome TLS fingerprint below — a
+# mismatch between what the TLS handshake claims and what the HTTP
+# header claims is itself a bot-detection signal. Align it with the
+# Chrome version curl_cffi's "chrome" impersonation target presents.
+yf.data.YfData.user_agent_headers = {"User-Agent": BROWSER_USER_AGENT}
+
 REQUIRED_COLUMNS = ["open_time", "open", "high", "low", "close", "volume", "close_time"]
 
 _INTRADAY_INTERVALS = {"1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h"}
@@ -89,7 +102,13 @@ def _fetch_stooq_daily(symbol: str, limit: int) -> pd.DataFrame:
         "d2": end.strftime("%Y%m%d"),
         "i": "d",
     }
-    resp = httpx.get("https://stooq.com/q/d/l/", params=params, timeout=15.0, follow_redirects=True)
+    resp = httpx.get(
+        "https://stooq.com/q/d/l/",
+        params=params,
+        headers={"User-Agent": BROWSER_USER_AGENT},
+        timeout=15.0,
+        follow_redirects=True,
+    )
     resp.raise_for_status()
     text = resp.text.strip()
     if not text or "Date" not in text.splitlines()[0]:

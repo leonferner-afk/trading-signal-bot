@@ -72,7 +72,7 @@ def test_falls_back_to_stooq_when_yfinance_exhausts_retries_for_daily(monkeypatc
     _patch_ticker(monkeypatch, [RuntimeError("empty"), RuntimeError("empty")])
     monkeypatch.setattr(
         "app.data.stock_client.httpx.get",
-        lambda url, params, timeout, follow_redirects: _FakeHttpResponse(_valid_stooq_csv()),
+        lambda url, params, headers, timeout, follow_redirects: _FakeHttpResponse(_valid_stooq_csv()),
     )
     client = _make_client()
     df = client.get_klines("AAPL", "1d", limit=5)
@@ -85,7 +85,7 @@ def test_stooq_request_includes_required_date_range_params(monkeypatch):
     _patch_ticker(monkeypatch, [RuntimeError("empty"), RuntimeError("empty")])
     captured = {}
 
-    def _fake_get(url, params, timeout, follow_redirects):
+    def _fake_get(url, params, headers, timeout, follow_redirects):
         captured.update(params)
         return _FakeHttpResponse(_valid_stooq_csv())
 
@@ -114,7 +114,7 @@ def test_raises_dataunavailable_when_both_providers_fail(monkeypatch):
     _patch_ticker(monkeypatch, [RuntimeError("empty"), RuntimeError("empty")])
     monkeypatch.setattr(
         "app.data.stock_client.httpx.get",
-        lambda url, params, timeout, follow_redirects: _FakeHttpResponse("No data"),
+        lambda url, params, headers, timeout, follow_redirects: _FakeHttpResponse("No data"),
     )
     client = _make_client()
     with pytest.raises(DataUnavailable):
