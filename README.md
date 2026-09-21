@@ -240,6 +240,36 @@ origin; static files are served by FastAPI directly (no separate build
 step). This needs real network access to Yahoo Finance to do anything
 useful — GitHub Codespaces or your own machine, not this dev sandbox.
 
+### Deploying it 24/7 (Railway)
+
+Codespaces is a dev session — it pauses itself and isn't meant to run
+unattended. For the scheduler/Telegram alerts to run around the clock you
+need a real always-on host. This repo is pre-configured
+(`backend/railway.json`) for [Railway](https://railway.app), which has a
+usable free tier and needs no server administration:
+
+1. Go to **railway.app** → sign in with GitHub.
+2. **New Project** → **Deploy from GitHub repo** → pick
+   `leonferner-afk/trading-signal-bot`.
+3. Once created, open the service → **Settings** → set **Root Directory**
+   to `backend` (the app code lives there, not the repo root).
+4. Still in Settings → **Networking** → **Generate Domain** — this gives
+   you the public URL for the dashboard.
+5. Optional but recommended — **Variables** tab: add `TELEGRAM_BOT_TOKEN`,
+   `TELEGRAM_CHAT_ID`, `ENABLE_SCHEDULER=true`. (You can skip this and set
+   the same things later from the dashboard's own Settings tab instead —
+   either works, env vars just mean it's configured from the very first
+   boot.)
+6. Railway redeploys automatically; open the generated URL once the
+   deploy finishes.
+
+**Persistence caveat**: without a Railway Volume, the container's
+filesystem (including the SQLite journal/settings DB) is wiped on every
+redeploy. Fine for just trying it out; if you want your journal and
+Settings-tab changes to survive redeploys, add a Volume (service →
+**Volumes** → mount at e.g. `/data`) and set the env var
+`DB_PATH=/data/tradingbot.db`.
+
 ### Running the test suite
 
 ```bash
