@@ -104,7 +104,7 @@ class StockClient:
                 ticker = yf.Ticker(symbol.upper())
                 raw = ticker.history(period=period, interval=interval, auto_adjust=True)
                 if raw is None or raw.empty:
-                    raise DataUnavailable(f"empty response for {symbol} {interval}")
+                    raise RuntimeError(f"empty response for {symbol} {interval}")
 
                 df = raw.reset_index()
                 date_col = "Date" if "Date" in df.columns else "Datetime"
@@ -122,13 +122,11 @@ class StockClient:
                 df["open_time"] = df["close_time"]
                 df = df[REQUIRED_COLUMNS].dropna(subset=["open", "high", "low", "close", "volume"])
                 if df.empty:
-                    raise DataUnavailable(f"no usable rows for {symbol} {interval}")
+                    raise RuntimeError(f"no usable rows for {symbol} {interval}")
 
                 df = df.tail(limit).reset_index(drop=True)
                 return df.set_index("close_time", drop=False)
-            except DataUnavailable:
-                raise
-            except Exception as exc:  # yfinance surfaces requests/HTTP/JSON errors, not one clean type
+            except Exception as exc:  # yfinance surfaces requests/HTTP/JSON errors (and our own empty-response/no-rows signals), not one clean type
                 last_error = exc
                 if attempt < self.max_retries:
                     time.sleep(self.backoff * attempt)
