@@ -34,6 +34,23 @@ STRATEGY_MODULES = {"breakout": breakout, "momentum": momentum, "reversal": reve
 app = FastAPI(title="Trading Signal Bot", version="0.1.0")
 
 
+@app.get("/api/debug/env")
+def debug_env() -> dict:
+    """Read-only diagnostic: confirms whether an env var actually reached
+    this running process, without ever exposing its value. Exists purely
+    to debug "I set the variable but the app says it's missing" deploy
+    issues from the browser, without digging through host platform logs."""
+    import os
+
+    key = os.environ.get("TWELVE_DATA_API_KEY", "")
+    return {
+        "TWELVE_DATA_API_KEY_present_in_os_environ": bool(key),
+        "TWELVE_DATA_API_KEY_length": len(key),
+        "settings_twelvedata_api_key_present": bool(settings.twelvedata_api_key),
+        "settings_twelvedata_api_key_length": len(settings.twelvedata_api_key),
+    }
+
+
 @app.on_event("startup")
 def _startup() -> None:
     init_db()
