@@ -27,7 +27,6 @@ from dataclasses import dataclass
 import httpx
 import pandas as pd
 import yfinance as yf
-from curl_cffi import requests as curl_requests
 
 from app.config import settings
 
@@ -35,14 +34,6 @@ BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
-
-# yfinance hardcodes a 2014-era Chrome User-Agent on every Yahoo request
-# (yfinance.data.YfData.user_agent_headers). Left as-is, that header
-# clashes with curl_cffi's modern Chrome TLS fingerprint below — a
-# mismatch between what the TLS handshake claims and what the HTTP
-# header claims is itself a bot-detection signal. Align it with the
-# Chrome version curl_cffi's "chrome" impersonation target presents.
-yf.data.YfData.user_agent_headers = {"User-Agent": BROWSER_USER_AGENT}
 
 REQUIRED_COLUMNS = ["open_time", "open", "high", "low", "close", "volume", "close_time"]
 
@@ -161,11 +152,6 @@ class StockClient:
 
     def __post_init__(self) -> None:
         self._last_request_at = 0.0
-        # Yahoo's chart endpoint increasingly blocks/empties requests whose
-        # TLS fingerprint doesn't look like a real browser — common on
-        # shared cloud-host IPs (Railway, AWS, ...). curl_cffi impersonates
-        # Chrome's TLS handshake, which a plain `requests` session can't.
-        self._session = curl_requests.Session(impersonate="chrome")
 
     def __enter__(self) -> "StockClient":
         return self
@@ -237,7 +223,7 @@ class StockClient:
             self._throttle()
             try:
                 self._last_request_at = time.monotonic()
-                ticker = yf.Ticker(symbol.upper(), session=self._session)
+                ticker = yf.Ticker(symbol.upper())
                 raw = ticker.history(period=period, interval=interval, auto_adjust=True)
                 if raw is None or raw.empty:
                     raise RuntimeError(f"empty response for {symbol} {interval}")
