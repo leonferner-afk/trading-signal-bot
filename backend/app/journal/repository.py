@@ -28,6 +28,16 @@ def has_open_signal(symbol: str, strategy: str, direction: str) -> bool:
         return session.scalars(stmt).first() is not None
 
 
+def has_open_position(symbol: str) -> bool:
+    """True if any strategy already holds an OPEN long on this symbol — the
+    bot never tells you to buy the same stock twice at once."""
+    with get_session() as session:
+        stmt = select(SignalRecord).where(
+            SignalRecord.symbol == symbol, SignalRecord.direction == "LONG", SignalRecord.result == "OPEN"
+        )
+        return session.scalars(stmt).first() is not None
+
+
 def save_signal(signal: Signal, historical_probability: dict | None = None) -> int:
     with get_session() as session:
         record = SignalRecord(
@@ -84,6 +94,11 @@ def close_signal(
     max_adverse_excursion_pct: float,
     holding_time_minutes: float,
     closed_at,
+    *,
+    fill_price: float | None = None,
+    exit_price: float | None = None,
+    return_pct: float | None = None,
+    r_multiple: float | None = None,
 ) -> None:
     with get_session() as session:
         record = session.get(SignalRecord, signal_id)
@@ -94,7 +109,23 @@ def close_signal(
         record.max_adverse_excursion_pct = max_adverse_excursion_pct
         record.holding_time_minutes = holding_time_minutes
         record.closed_at = closed_at
+        record.fill_price = fill_price
+        record.exit_price = exit_price
+        record.return_pct = return_pct
+        record.r_multiple = r_multiple
         session.commit()
+
+
+def realized_return_pct(record: SignalRecord) -> float:
+    """Actual outcome when it was measured from real fills; otherwise the
+    planned target/stop distance (older rows, before fills were tracked)."""
+    if record.return_pct is not None:
+        return record.return_pct
+    if record.result == "TARGET_HIT":
+        return record.reward_pct
+    if record.result == "STOP_HIT":
+        return -record.risk_pct
+    return 0.0
 
 
 def save_backtest_run(
@@ -137,7 +168,7 @@ def performance_summary() -> dict:
     """Aggregate performance strictly from CLOSED signals — an empty
     journal returns an honest empty summary, never fabricated stats."""
     with get_session() as session:
-        stmt = select(SignalRecord).where(SignalRecord.result != "OPEN").order_by(SignalRecord.closed_at)
+        stmt = select(SignalRecord).where(SignalRecord.result.notin_(("OPEN", "SKIPPED_GAP"))).order_by(SignalRecord.closed_at)
         closed = list(session.scalars(stmt))
 
     if not closed:
@@ -156,14 +187,10 @@ def performance_summary() -> dict:
             "note": "No closed signals yet — performance stats require paper-traded or backtested outcomes.",
         }
 
-    wins = [r for r in closed if r.result == "TARGET_HIT"]
-    losses = [r for r in closed if r.result == "STOP_HIT"]
-
-    def signed_return(r: SignalRecord) -> float:
-        pct = r.reward_pct if r.result == "TARGET_HIT" else -r.risk_pct
-        return pct if r.direction == "LONG" else pct  # risk/reward already direction-adjusted
-
-    returns = [signed_return(r) for r in closed]
+    returns = [realized_return_pct(r) for r in closed]
+    wins = [r for r, ret in zip(closed, returns) if ret > 0]
+    losses = [r for r, ret in zip(closed, returns) if ret <= 0]
+    r_multiples = [r.r_multiple for r in closed if r.r_multiple is not None]
     gains = [r for r in returns if r > 0]
     lossses = [abs(r) for r in returns if r < 0]
 
@@ -189,7 +216,7 @@ def performance_summary() -> dict:
         for bucket, key in ((by_regime, r.market_regime), (by_strategy, r.strategy)):
             entry = bucket.setdefault(key, {"count": 0, "wins": 0})
             entry["count"] += 1
-            if r.result == "TARGET_HIT":
+            if realized_return_pct(r) > 0:
                 entry["wins"] += 1
     for bucket in (by_regime, by_strategy):
         for key, entry in bucket.items():
@@ -205,6 +232,8 @@ def performance_summary() -> dict:
         "expectancy_pct": round(expectancy, 3) if expectancy is not None else None,
         "profit_factor": round(profit_factor, 3) if profit_factor is not None else None,
         "max_drawdown_pct": round(max_dd, 3),
+        "average_r": round(sum(r_multiples) / len(r_multiples), 3) if r_multiples else None,
+        "total_r": round(sum(r_multiples), 3) if r_multiples else None,
         "by_regime": by_regime,
         "by_strategy": by_strategy,
         "note": None,
@@ -217,13 +246,13 @@ def equity_curve() -> list[dict]:
     over time so the dashboard can show whether the edge is actually
     holding, not just an aggregate number. Empty until signals have closed."""
     with get_session() as session:
-        stmt = select(SignalRecord).where(SignalRecord.result != "OPEN").order_by(SignalRecord.closed_at)
+        stmt = select(SignalRecord).where(SignalRecord.result.notin_(("OPEN", "SKIPPED_GAP"))).order_by(SignalRecord.closed_at)
         closed = list(session.scalars(stmt))
 
     points = []
     running = 0.0
     for r in closed:
-        pct = r.reward_pct if r.result == "TARGET_HIT" else (-r.risk_pct if r.result == "STOP_HIT" else 0.0)
+        pct = realized_return_pct(r)
         running += pct
         points.append(
             {

@@ -47,6 +47,7 @@ class ScanResult:
     signals: list[Signal]
     skipped: list[SkippedSymbol] = field(default_factory=list)
     no_trade_summary: list[dict] = field(default_factory=list)
+    spy_above_200: bool | None = None
 
     @property
     def has_signals(self) -> bool:
@@ -93,84 +94,92 @@ def scan_symbol(client: StockClient, symbol: str, interval: str) -> tuple[pd.Dat
     return enrich(raw), None
 
 
-def run_scan(watchlist: list[str] | None = None, interval: str | None = None) -> ScanResult:
+def _above_sma200(df: pd.DataFrame) -> bool:
+    row = df.iloc[-1]
+    return bool(pd.notna(row.get("sma_200")) and float(row["close"]) > float(row["sma_200"]))
+
+
+def run_scan(
+    watchlist: list[str] | None = None,
+    interval: str | None = None,
+    *,
+    client: StockClient | None = None,
+    strategies=None,
+    long_only: bool = True,
+) -> ScanResult:
+    """Scans the universe and keeps the best-scoring setup per symbol.
+    `strategies` restricts which strategy modules may produce signals (the
+    live policy passes only the ones research supports); `long_only`
+    ignores SHORT setups so a short can never crowd out a long on the same
+    symbol for a long-only trader."""
     from app.runtime_settings import get_effective_settings
 
     watchlist = watchlist or list(get_effective_settings().watchlist)
     interval = interval or settings.scan_interval
+    strategies = strategies or STRATEGIES
     scanned_at = dt.datetime.now(dt.timezone.utc).isoformat()
 
     skipped: list[SkippedSymbol] = []
     signals: list[Signal] = []
     no_trade_summary: list[dict] = []
 
-    with StockClient() as client:
-        symbols_to_scan = watchlist if ANCHOR_SYMBOL in watchlist else [ANCHOR_SYMBOL] + watchlist
-        client.prefetch(symbols_to_scan, interval, limit=300)
+    client = client or StockClient()
+    symbols_to_scan = watchlist if ANCHOR_SYMBOL in watchlist else [ANCHOR_SYMBOL] + watchlist
+    client.prefetch(symbols_to_scan, interval, limit=300)
 
-        anchor_df, anchor_error = scan_symbol(client, ANCHOR_SYMBOL, interval)
-        anchor_snapshot = latest_snapshot(anchor_df) if anchor_df is not None else None
-        market_wide_risk = market_wide_risk_regime(anchor_snapshot)
+    anchor_df, anchor_error = scan_symbol(client, ANCHOR_SYMBOL, interval)
+    anchor_snapshot = latest_snapshot(anchor_df) if anchor_df is not None else None
+    market_wide_risk = market_wide_risk_regime(anchor_snapshot)
+    spy_above_200 = _above_sma200(anchor_df) if anchor_df is not None else None
 
-        for symbol in symbols_to_scan:
-            if symbol == ANCHOR_SYMBOL and anchor_df is not None:
-                df, error = anchor_df, anchor_error
-            elif symbol == ANCHOR_SYMBOL:
-                df, error = None, anchor_error
-            else:
-                df, error = scan_symbol(client, symbol, interval)
+    for symbol in symbols_to_scan:
+        if symbol == ANCHOR_SYMBOL:
+            continue
+        df, error = scan_symbol(client, symbol, interval)
+        if error is not None or df is None:
+            skipped.append(SkippedSymbol(symbol=symbol, reason=error or "unknown error"))
+            continue
 
-            if error is not None or df is None:
-                skipped.append(SkippedSymbol(symbol=symbol, reason=error or "unknown error"))
+        snapshot = latest_snapshot(df)
+        if snapshot is None:
+            skipped.append(SkippedSymbol(symbol=symbol, reason="regime could not be determined (insufficient warmup)"))
+            continue
+
+        best_signal: Signal | None = None
+        for strategy_module in strategies:
+            candidate = strategy_module.generate(df, symbol)
+            if candidate is None or (long_only and candidate.direction != "LONG"):
                 continue
+            # No stock news provider is wired up: catalyst honestly scores 0.
+            news = NewsResult(symbol=symbol, available=False, reason="no stock news provider configured")
+            signal = build_signal(candidate, snapshot, news, market_wide_risk)
+            if best_signal is None or signal.score > best_signal.score:
+                best_signal = signal
 
-            snapshot = latest_snapshot(df)
-            if snapshot is None:
-                skipped.append(SkippedSymbol(symbol=symbol, reason="regime could not be determined (insufficient warmup)"))
-                continue
+        if best_signal is None:
+            no_trade_summary.append({"symbol": symbol, "reason": "no strategy found a qualifying setup", "regime": snapshot.label})
+            continue
+        if best_signal.tier == NO_TRADE:
+            no_trade_summary.append(
+                {"symbol": symbol, "reason": f"best candidate scored {best_signal.score:.1f}/100 (below watch threshold)", "regime": snapshot.label}
+            )
+            continue
 
-            best_signal: Signal | None = None
-            best_candidate_score = -1.0
-            attempted_reasons: list[str] = []
+        best_signal.context = {
+            "stock_above_200": _above_sma200(df),
+            "spy_above_200": spy_above_200,
+            "last_close": float(df["close"].iloc[-1]),
+            "atr_pct": round(float(df["atr_14"].iloc[-1] / df["close"].iloc[-1] * 100), 2),
+        }
+        # Additive only — no warning never means "confirmed no earnings".
+        if best_signal.direction == "LONG":
+            earnings_note = earnings_warning(symbol)
+            if earnings_note:
+                best_signal.reasons.append(f"⚠ {earnings_note}")
+                best_signal.warning = f"{best_signal.warning} | {earnings_note}" if best_signal.warning else earnings_note
+                best_signal.context["earnings_soon"] = True
 
-            for strategy_module in STRATEGIES:
-                candidate = strategy_module.generate(df, symbol)
-                if candidate is None:
-                    continue
-                # No stock news provider is wired up yet (the crypto
-                # version used CryptoPanic, which doesn't cover equities) —
-                # catalyst score is honestly 0/10 rather than pretending a
-                # crypto news feed applies here. A natural zero/low-cost
-                # upgrade: Finnhub's free-tier company-news endpoint.
-                news: NewsResult = NewsResult(
-                    symbol=symbol, available=False, reason="no stock news provider configured yet"
-                )
-                signal = build_signal(candidate, snapshot, news, market_wide_risk)
-                attempted_reasons.append(f"{candidate.strategy}: score {signal.score:.1f}/100 ({signal.tier})")
-                if signal.score > best_candidate_score:
-                    best_candidate_score = signal.score
-                    best_signal = signal
-
-            if best_signal is None:
-                no_trade_summary.append({"symbol": symbol, "reason": "no strategy found a qualifying setup", "regime": snapshot.label})
-                continue
-
-            if best_signal.tier == NO_TRADE:
-                no_trade_summary.append(
-                    {"symbol": symbol, "reason": f"best candidate scored {best_signal.score:.1f}/100 (below watch threshold)", "regime": snapshot.label}
-                )
-                continue
-
-            # Only worth an extra lookup for signals that actually qualify.
-            # Additive only — a missing warning never means "confirmed no
-            # earnings," it means the calendar lookup found nothing/failed.
-            if best_signal.direction == "LONG":
-                earnings_note = earnings_warning(symbol)
-                if earnings_note:
-                    best_signal.reasons.append(f"⚠ {earnings_note}")
-                    best_signal.warning = f"{best_signal.warning} | {earnings_note}" if best_signal.warning else earnings_note
-
-            signals.append(best_signal)
+        signals.append(best_signal)
 
     signals.sort(key=lambda s: s.score, reverse=True)
 
@@ -181,4 +190,5 @@ def run_scan(watchlist: list[str] | None = None, interval: str | None = None) ->
         signals=signals,
         skipped=skipped,
         no_trade_summary=no_trade_summary,
+        spy_above_200=spy_above_200,
     )

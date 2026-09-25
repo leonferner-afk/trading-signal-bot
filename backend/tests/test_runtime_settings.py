@@ -53,6 +53,8 @@ def test_unknown_field_rejected():
 
 
 def test_portfolio_defaults_are_sane_when_unset():
+    from app.config import settings
+
     live = get_effective_settings()
-    assert live.portfolio_size_usd == 1000.0
-    assert live.risk_per_trade_pct == 1.0
+    assert live.portfolio_size_usd == settings.portfolio_size_usd > 0
+    assert 0 < live.risk_per_trade_pct == settings.risk_per_trade_pct <= 2

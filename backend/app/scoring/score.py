@@ -81,6 +81,9 @@ class Signal:
     regime_label: str
     market_wide_risk: str = "NEUTRAL"
     news_available: bool = False
+    # Extra facts the scanner knows at signal time (e.g. whether the stock
+    # and SPY are above their 200-day averages), used by the live policy.
+    context: dict = field(default_factory=dict)
 
 
 def tier_for_score(

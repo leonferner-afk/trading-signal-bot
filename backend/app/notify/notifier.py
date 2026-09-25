@@ -41,86 +41,91 @@ def _format_holding_duration(minutes: float) -> str:
     return f"{mins}m"
 
 
+def _evidence_line(evidence: dict | None) -> list[str]:
+    if not evidence:
+        return ["Historik: ingen backtest-statistik tillgänglig för den här typen av signal ännu."]
+    if "n" in evidence:
+        line = (
+            f"Historik ({evidence.get('label', 'backtest')}): {evidence['n']} affärer, "
+            f"{evidence['win_rate'] * 100:.0f}% vinnare, snitt {evidence['avg_r']:+.2f}R per affär"
+        )
+        if evidence.get("oos_n"):
+            line += f" (senaste perioden: {evidence['oos_avg_r']:+.2f}R på {evidence['oos_n']} affärer)"
+        return [line, "Historik är ingen garanti — varje enskild affär kan förlora."]
+    if evidence.get("similar_setups"):  # older per-symbol backtest shape
+        return [
+            f"Historik: {evidence['similar_setups']} liknande setups, target träffat {evidence['target_hit_rate']:.0%}, "
+            f"snittavkastning {evidence['average_return_pct']:+.2f}%"
+        ]
+    return []
+
+
 def format_entry_message(signal: Signal, historical_probability: dict | None = None) -> str:
     from app.risk.position_sizing import compute_position_size
     from app.runtime_settings import get_effective_settings
 
     live = get_effective_settings()
     size = compute_position_size(signal.entry, signal.stop, live.portfolio_size_usd, live.risk_per_trade_pct)
+    shares = int(size.units) if size.units >= 1 else round(size.units, 3)
 
     lines = [
-        "🟢 KÖP NU",
+        f"🟢 KÖP NU — {signal.symbol}",
+        f"Strategi: {signal.strategy} · Score {signal.score:.0f}/100",
         "",
-        f"ASSET: {signal.symbol}",
-        f"Score: {signal.score:.0f}/100 ({signal.tier.replace('_', ' ')}, {signal.strategy})",
+        f"Köp vid börsens öppning (senaste stängning {signal.entry:g})",
+        f"Stop-loss: {signal.stop:g} (-{signal.risk_pct:.1f}%) ← lägg som stop-order direkt vid köp",
+        f"Mål: {signal.target:g} (+{signal.reward_pct:.1f}%) ← lägg som limit-säljorder direkt vid köp",
+        f"R/R: {signal.rr_ratio:.1f} · Säljs senast efter 90 handelsdagar om inget nås",
         "",
-        f"Entry: {signal.entry:g}",
-        f"Target: {signal.target:g}  (+{signal.reward_pct:.2f}%)",
-        f"Stop: {signal.stop:g}  (-{signal.risk_pct:.2f}%)",
-        f"R/R: {signal.rr_ratio:.2f}",
-        "",
-        f"Föreslagen position: ${size.position_size_usd:,.2f} (~{size.units:g} st) "
-        f"— {size.position_pct_of_portfolio:.1f}% av portföljen, risk ${size.risk_amount_usd:,.2f} "
-        f"({live.risk_per_trade_pct:.1f}% regel, portfölj ${live.portfolio_size_usd:,.0f})",
+        f"Storlek: {shares} st ≈ ${size.position_size_usd:,.0f} ({size.position_pct_of_portfolio:.0f}% av portföljen) "
+        f"→ risk ${size.risk_amount_usd:,.0f} = {live.risk_per_trade_pct:g}% av ${live.portfolio_size_usd:,.0f}",
         "",
         "Varför:",
     ]
     lines += [f"• {reason}" for reason in signal.reasons]
-    lines += [
-        "",
-        f"Ogiltigförklaras vid: {signal.invalidation:g} ({signal.invalidation_reason})",
-    ]
-
-    if historical_probability and historical_probability.get("similar_setups"):
-        hp = historical_probability
-        lines.append("")
-        lines.append(
-            f"Historik: {hp['similar_setups']} liknande setups, target träffat {hp['target_hit_rate']:.0%}, "
-            f"snittavkastning {hp['average_return_pct']:+.2f}%"
-        )
-        if hp.get("average_holding_minutes"):
-            lines.append(f"Förväntad hålltid: ~{_format_holding_duration(hp['average_holding_minutes'])} (historiskt snitt)")
-        if hp.get("common_hours_utc"):
-            hours = ", ".join(f"{h:02d}:00" for h in hp["common_hours_utc"])
-            lines.append(f"Vanligast vid (UTC): {hours}")
-    else:
-        lines += ["", "Ingen backtest på fil ännu för denna strategi/symbol — hålltid okänd."]
-
+    lines += [""] + _evidence_line(historical_probability)
     if signal.warning:
         lines += ["", f"⚠ {signal.warning}"]
-
-    lines += ["", "Jag bevakar nu den här positionen automatiskt och skickar SÄLJ NU när target eller stop nås."]
+    lines += ["", "Om aktien öppnar under stop-nivån: köp inte — signalen är då redan ogiltig."]
     return "\n".join(lines)
 
 
 _RESULT_LABEL = {
     "TARGET_HIT": "✅ TARGET HIT",
     "STOP_HIT": "🛑 STOP HIT",
-    "EXPIRED": "⏱ TID UTE (varken target eller stop nått)",
+    "TIME_EXIT": "⏱ TID UTE",
+    "EXPIRED": "⏱ TID UTE",
 }
 
 
 def format_exit_message(record: SignalRecord, update: dict) -> str:
     result = update["result"]
-    if result == "TARGET_HIT":
-        pnl = f"+{record.reward_pct:.2f}%"
+    ret = update.get("return_pct")
+    r_mult = update.get("r_multiple")
+    if ret is not None:
+        pnl = f"{ret:+.1f}%" + (f" ({r_mult:+.1f}R)" if r_mult is not None else "")
+    elif result == "TARGET_HIT":
+        pnl = f"+{record.reward_pct:.1f}%"
     elif result == "STOP_HIT":
-        pnl = f"-{record.risk_pct:.2f}%"
+        pnl = f"-{record.risk_pct:.1f}%"
     else:
-        mfe = update.get("max_favorable_excursion_pct") or 0.0
-        mae = update.get("max_adverse_excursion_pct") or 0.0
-        pnl = f"bäst +{mfe:.2f}% / sämst -{mae:.2f}% under perioden"
+        pnl = f"bäst +{update.get('max_favorable_excursion_pct') or 0:.1f}% under perioden"
 
     lines = [
-        "🔴 SÄLJ NU",
-        "",
-        f"ASSET: {record.symbol}",
-        f"Resultat: {_RESULT_LABEL.get(result, result)} ({pnl})",
-        f"Höll i: {_format_holding_duration(update['holding_time_minutes'])}",
-        f"Max favorable/adverse excursion: +{update['max_favorable_excursion_pct']:.2f}% / -{update['max_adverse_excursion_pct']:.2f}%",
-        "",
-        f"Ursprunglig signal: {record.strategy}, score {record.score:.0f}/100, köpsignal {record.timestamp}",
+        f"🔴 SÄLJ NU — {record.symbol}",
+        f"Resultat: {_RESULT_LABEL.get(result, result)} {pnl}",
     ]
+    if update.get("fill_price") and update.get("exit_price"):
+        lines.append(f"Köpt {update['fill_price']:g} → sålt {update['exit_price']:g}")
+    if update.get("holding_bars"):
+        lines.append(f"Hölls {update['holding_bars']} handelsdagar")
+    else:
+        lines.append(f"Höll i: {_format_holding_duration(update['holding_time_minutes'])}")
+    if result in ("TARGET_HIT", "STOP_HIT"):
+        lines.append("Om du lade stop-/limit-ordern vid köpet är detta redan utfört — annars: sälj nu.")
+    else:
+        lines.append("Varken mål eller stop nåddes inom 90 handelsdagar: sälj vid öppning.")
+    lines.append(f"Signal: {record.strategy}, score {record.score:.0f}/100, {str(record.timestamp)[:10]}")
     return "\n".join(lines)
 
 

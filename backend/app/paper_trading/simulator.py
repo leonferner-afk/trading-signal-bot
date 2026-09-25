@@ -1,137 +1,130 @@
-"""Paper trading (section 13).
+"""Paper trading: follows every BUY signal forward on real market data and
+records what actually happened, using exactly the backtest's rules so the
+live track record and the research are comparable:
 
-Every signal that clears the quality filter is logged automatically (via
-`app.journal.repository.save_signal`, called from the scanner/API layer).
-This module is the other half: it walks REAL subsequent market data for
-each still-open signal and records what actually happened — target hit,
-stop hit, or still running — with maximum favorable/adverse excursion and
-holding time. It never estimates or assumes an outcome; a symbol whose
-fresh data cannot be fetched is left OPEN and reported as "could not be
-updated", not silently marked as a win.
+  - bought at the open of the first session after the signal (the earliest
+    anyone acting on the notification could buy), fees + slippage included
+  - if that open is already below the stop (or above the target) the setup
+    never became a trade: SKIPPED_GAP
+  - sold at the stop/target, or at the open if the stock gapped through it
+  - closed at the close after MAX_HOLDING_BARS sessions if neither level hit
+
+A symbol whose data can't be fetched stays OPEN and is reported as not
+updated — an outcome is never assumed.
 """
 from __future__ import annotations
 
-import datetime as dt
-
 import pandas as pd
 
+from app.backtest.engine import MAX_HOLDING_BARS_DEFAULT, net_return_pct, resolve_exit
 from app.config import settings
 from app.data.stock_client import DataUnavailable, StockClient
 from app.db import SignalRecord
 
-# Swing/position setups (weeks-to-a-few-months horizon, per the stock
-# concept) need far more runway than the old intraday-crypto default (was
-# 48h) — 90 days gives a real move room to develop before we call it a
-# non-event.
-EXPIRY_HOURS = 24 * 90
-
-_UNIT_MINUTES = {"m": 1, "h": 60, "d": 1440, "wk": 10080, "mo": 43200}
+SKIPPED_GAP = "SKIPPED_GAP"
 
 
-def _interval_to_minutes(interval: str) -> float:
-    for suffix in ("wk", "mo"):
-        if interval.endswith(suffix):
-            return float(interval[: -len(suffix)]) * _UNIT_MINUTES[suffix]
-    unit = interval[-1]
-    value = float(interval[:-1])
-    return value * _UNIT_MINUTES.get(unit, 60)
-
-
-def _parse_timestamp(value: str) -> dt.datetime:
+def _parse_timestamp(value: str) -> pd.Timestamp:
     ts = pd.Timestamp(value)
-    if ts.tzinfo is None:
-        ts = ts.tz_localize("UTC")
-    return ts.to_pydatetime()
+    return ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
 
 
-def evaluate_open_signal(client: StockClient, record: SignalRecord, interval: str) -> dict | None:
-    """Returns an update dict (result/mfe/mae/holding_minutes/closed_at) if
-    the signal resolved or expired, or None if it should stay OPEN /
-    could not be checked."""
-    entry_time = _parse_timestamp(record.timestamp)
-    now = dt.datetime.now(dt.timezone.utc)
-    age_hours = (now - entry_time).total_seconds() / 3600.0
-
+def _bars_after_signal(client: StockClient, record: SignalRecord) -> tuple[pd.DataFrame, pd.DataFrame] | None:
     try:
-        candle_minutes = _interval_to_minutes(interval)
-        needed_candles = int((age_hours * 60) / candle_minutes) + 20
-        limit = min(1000, max(50, needed_candles))
-        df = client.get_klines(record.symbol, interval, limit=limit)
+        df = client.get_klines(record.symbol, "1d", limit=400)
     except DataUnavailable:
         return None
+    return df, df[df["close_time"] > _parse_timestamp(record.timestamp)]
 
-    df = df[df["close_time"] > pd.Timestamp(entry_time)]
-    if df.empty:
+
+def evaluate_open_signal(client: StockClient, record: SignalRecord, max_holding_bars: int = MAX_HOLDING_BARS_DEFAULT) -> dict | None:
+    """Update dict if the position resolved (or never filled), else None
+    (still open, or data unavailable)."""
+    bars = _bars_after_signal(client, record)
+    if bars is None or bars[1].empty:
+        return None
+    after = bars[1]
+
+    opens, highs, lows, closes = (after[c].to_numpy(dtype=float) for c in ("open", "high", "low", "close"))
+    fill = float(opens[0])
+    exit_ = resolve_exit(opens, highs, lows, closes, 0, record.direction, record.stop, record.target, max_holding_bars)
+
+    if exit_ is None:
+        return {
+            "result": SKIPPED_GAP, "fill_price": round(fill, 4), "exit_price": None, "return_pct": None,
+            "r_multiple": None, "max_favorable_excursion_pct": 0.0, "max_adverse_excursion_pct": 0.0,
+            "holding_time_minutes": 0.0, "holding_bars": 0, "closed_at": after["close_time"].iloc[0].to_pydatetime(),
+        }
+    # Ran out of data before the holding cap: still open, not a time exit.
+    if exit_.result == "TIME_EXIT" and len(after) <= max_holding_bars:
         return None
 
-    mfe = 0.0
-    mae = 0.0
-    for _, bar in df.iterrows():
-        high, low = float(bar["high"]), float(bar["low"])
-        favorable = (high - record.entry) if record.direction == "LONG" else (record.entry - low)
-        adverse = (record.entry - low) if record.direction == "LONG" else (high - record.entry)
-        mfe = max(mfe, favorable / record.entry * 100)
-        mae = max(mae, adverse / record.entry * 100)
-
-        stop_hit = low <= record.stop if record.direction == "LONG" else high >= record.stop
-        target_hit = high >= record.target if record.direction == "LONG" else low <= record.target
-
-        if stop_hit:
-            holding_minutes = (bar["close_time"] - pd.Timestamp(entry_time)).total_seconds() / 60.0
-            return {
-                "result": "STOP_HIT", "max_favorable_excursion_pct": round(mfe, 4),
-                "max_adverse_excursion_pct": round(mae, 4), "holding_time_minutes": round(holding_minutes, 1),
-                "closed_at": bar["close_time"].to_pydatetime(),
-            }
-        if target_hit:
-            holding_minutes = (bar["close_time"] - pd.Timestamp(entry_time)).total_seconds() / 60.0
-            return {
-                "result": "TARGET_HIT", "max_favorable_excursion_pct": round(mfe, 4),
-                "max_adverse_excursion_pct": round(mae, 4), "holding_time_minutes": round(holding_minutes, 1),
-                "closed_at": bar["close_time"].to_pydatetime(),
-            }
-
-    if age_hours >= EXPIRY_HOURS:
-        last_bar_time = df["close_time"].iloc[-1]
-        holding_minutes = (last_bar_time - pd.Timestamp(entry_time)).total_seconds() / 60.0
-        return {
-            "result": "EXPIRED", "max_favorable_excursion_pct": round(mfe, 4),
-            "max_adverse_excursion_pct": round(mae, 4), "holding_time_minutes": round(holding_minutes, 1),
-            "closed_at": last_bar_time.to_pydatetime(),
-        }
-
-    return None
+    ret = net_return_pct(fill, exit_.raw_price, record.direction, settings.fee_bps, settings.slippage_bps)
+    planned_risk = abs(record.entry - record.stop)
+    fill_with_costs = fill * (1 + (settings.fee_bps + settings.slippage_bps) / 10000.0)
+    closed_at = after["close_time"].iloc[exit_.index]
+    return {
+        "result": exit_.result,
+        "fill_price": round(fill, 4),
+        "exit_price": round(exit_.raw_price, 4),
+        "return_pct": round(ret, 3),
+        "r_multiple": round(ret / 100 * fill_with_costs / planned_risk, 3) if planned_risk > 0 else None,
+        "max_favorable_excursion_pct": round(exit_.mfe_pct, 3),
+        "max_adverse_excursion_pct": round(exit_.mae_pct, 3),
+        "holding_time_minutes": round((closed_at - _parse_timestamp(record.timestamp)).total_seconds() / 60.0, 1),
+        "holding_bars": exit_.index + 1,
+        "closed_at": closed_at.to_pydatetime(),
+    }
 
 
-def run_paper_trading_update(interval: str | None = None) -> dict:
-    """Checks every OPEN signal against fresh market data (at a finer
-    granularity than the entry strategy's own timeframe, so a stop/target
-    hit is caught promptly) and closes any that have resolved — firing a
-    "SÄLJ NU" notification the moment that happens. Returns a summary of
-    what changed."""
+def current_mark(client: StockClient, record: SignalRecord) -> dict | None:
+    """Unrealized state of a still-open position, for the daily report."""
+    bars = _bars_after_signal(client, record)
+    if bars is None:
+        return None
+    df, after = bars
+    last_close = float(df["close"].iloc[-1])
+    if after.empty:
+        return {"last_close": last_close, "fill_price": None, "unrealized_pct": None, "sessions_held": 0}
+    fill = float(after["open"].iloc[0])
+    return {
+        "last_close": last_close,
+        "fill_price": fill,
+        "unrealized_pct": round((last_close - fill) / fill * 100, 2),
+        "sessions_held": len(after),
+    }
+
+
+def run_paper_trading_update(interval: str | None = None, client: StockClient | None = None) -> dict:
+    """Resolves every OPEN signal against fresh data and fires "SÄLJ NU"
+    for each that closed. `interval` is accepted for API compatibility;
+    positions are always evaluated on daily bars, like the backtest."""
     from app.journal.repository import close_signal, get_open_signals
     from app.notify.notifier import notify_exit
 
-    interval = interval or settings.monitor_kline_interval
     open_records = get_open_signals()
-    updated = []
-    unavailable = []
+    if client is None:
+        client = StockClient()
+        if open_records:
+            client.prefetch([r.symbol for r in open_records], "1d", limit=400)
 
-    with StockClient() as client:
-        for record in open_records:
-            update = evaluate_open_signal(client, record, interval)
-            if update is None:
+    updated, unavailable = [], []
+    for record in open_records:
+        update = evaluate_open_signal(client, record)
+        if update is None:
+            if _bars_after_signal(client, record) is None:
                 unavailable.append(record.symbol)
-                continue
-            close_signal(
-                record.id,
-                update["result"],
-                update["max_favorable_excursion_pct"],
-                update["max_adverse_excursion_pct"],
-                update["holding_time_minutes"],
-                update["closed_at"],
-            )
+            continue
+        close_signal(
+            record.id, update["result"],
+            update["max_favorable_excursion_pct"], update["max_adverse_excursion_pct"],
+            update["holding_time_minutes"], update["closed_at"],
+            fill_price=update["fill_price"], exit_price=update["exit_price"],
+            return_pct=update["return_pct"], r_multiple=update["r_multiple"],
+        )
+        if update["result"] != SKIPPED_GAP:
             notify_exit(record, update)
-            updated.append({"id": record.id, "symbol": record.symbol, **{k: v for k, v in update.items() if k != "closed_at"}})
+        updated.append({"id": record.id, "symbol": record.symbol, "strategy": record.strategy,
+                        **{k: v for k, v in update.items() if k != "closed_at"}})
 
     return {"checked": len(open_records), "updated": updated, "still_open_or_unavailable": unavailable}

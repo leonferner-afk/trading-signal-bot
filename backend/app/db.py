@@ -50,6 +50,14 @@ class SignalRecord(Base):
     max_adverse_excursion_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     holding_time_minutes: Mapped[float | None] = mapped_column(Float, nullable=True)
     closed_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
+    # Realized outcome, measured the way the trade would actually have
+    # gone: bought at the open after the signal, sold at the level (or the
+    # gap-open through it), fees and slippage included. `entry` above stays
+    # the planned price the notification quoted.
+    fill_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    exit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    return_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    r_multiple: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class BacktestRun(Base):
@@ -115,6 +123,22 @@ SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
 
 def init_db() -> None:
     Base.metadata.create_all(_engine)
+    _add_missing_columns()
+
+
+def _add_missing_columns() -> None:
+    """`create_all` never alters an existing table, and the bot's SQLite
+    file persists across runs — so columns added to a model later are
+    added here (nullable, so existing rows stay valid)."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(_engine)
+    with _engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            existing = {c["name"] for c in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name not in existing:
+                    conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {column.type.compile(_engine.dialect)}'))
 
 
 def get_session() -> Session:

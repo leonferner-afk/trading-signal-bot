@@ -77,8 +77,8 @@ def get_effective_settings() -> EffectiveSettings:
             trading_hours_end=row.trading_hours_end or env_settings.trading_hours_end,
             trading_hours_timezone=row.trading_hours_timezone or env_settings.trading_hours_timezone,
             trading_days=tuple(row.trading_days_csv.split(",")) if row.trading_days_csv else env_settings.trading_days,
-            portfolio_size_usd=row.portfolio_size_usd if row.portfolio_size_usd is not None else 1000.0,
-            risk_per_trade_pct=row.risk_per_trade_pct if row.risk_per_trade_pct is not None else 1.0,
+            portfolio_size_usd=row.portfolio_size_usd if row.portfolio_size_usd is not None else env_settings.portfolio_size_usd,
+            risk_per_trade_pct=row.risk_per_trade_pct if row.risk_per_trade_pct is not None else env_settings.risk_per_trade_pct,
             overridden_fields=overridden,
         )
 

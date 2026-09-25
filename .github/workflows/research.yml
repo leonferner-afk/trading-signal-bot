@@ -14,36 +14,49 @@ on:
     - cron: "17 8 * * 0"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: research
+  group: bot-state
   cancel-in-progress: false
 
 jobs:
   research:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          ref: bot-state
+          path: state
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: backend/requirements.txt
-      - run: pip install -r requirements.txt
+      - run: pip install -r backend/requirements.txt
       - name: Run research
+        working-directory: backend
         env:
           PYTHONPATH: .
           DB_PATH: /tmp/research.db
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
-        run: python -m app.cli research --years "${{ inputs.years || '10' }}" --symbols "${{ inputs.symbols }}" --out research_output
+        run: python -m app.cli research --years "${{ inputs.years || '10' }}" --symbols "${{ inputs.symbols }}" --out "$GITHUB_WORKSPACE/research_output"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: research-output
-          path: backend/research_output/
+          path: research_output/
           retention-days: 30
+      - name: Publish evidence for the daily bot
+        # Only a full-universe run becomes the evidence the live bot quotes.
+        if: success() && inputs.symbols == ''
+        working-directory: state
+        run: |
+          cp ../research_output/evidence.json ../research_output/research.md .
+          git config user.name "tradingbot"
+          git config user.email "tradingbot@users.noreply.github.com"
+          git add evidence.json research.md
+          git diff --cached --quiet || git commit -q -m "Research $(date -u +%F)"
+          git push -q origin HEAD:bot-state

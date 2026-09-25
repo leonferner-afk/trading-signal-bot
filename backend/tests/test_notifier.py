@@ -42,7 +42,8 @@ def test_entry_message_says_kop_nu():
     msg = notifier.format_entry_message(_signal())
     assert msg.startswith("🟢 KÖP NU")
     assert "AAPL" in msg
-    assert "Target: 106" in msg
+    assert "Mål: 106" in msg
+    assert "Stop-loss: 97" in msg
 
 
 def test_notify_entry_sends_for_long_above_threshold(stub_delivery, monkeypatch):
