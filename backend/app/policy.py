@@ -28,6 +28,7 @@ class LivePolicy:
     min_score: float
     require_spy_above_200: bool
     require_stock_above_200: bool
+    exit_style: str = "fixed"
 
     def strategy_modules(self) -> list:
         return [STRATEGY_MODULES[name] for name in self.strategies]
@@ -73,12 +74,18 @@ def active_policy() -> LivePolicy:
     )
 
 
-def research_policy_name(min_score: float, spy: bool, stock: bool) -> str:
+def research_policy_name(min_score: float, spy: bool, stock: bool, rs_min: float = 0.0, near_high_min: float = 0.0) -> str:
+    """Single naming scheme shared by research and the live policy, so a
+    live rule set can always find its own backtest row."""
     parts = [f"score>={min_score:g}"] if min_score > 0 else []
     if spy:
         parts.append("SPY>200d")
     if stock:
         parts.append("stock>200d")
+    if rs_min > 0:
+        parts.append(f"RS>={rs_min:g}")
+    if near_high_min > 0:
+        parts.append(f"high52>={near_high_min:g}")
     return " & ".join(parts) or "all"
 
 
@@ -96,7 +103,7 @@ def evidence_for(evidence: dict | None, strategy: str, policy: LivePolicy) -> di
     if not evidence:
         return None
     for row in evidence.get("policies", []):
-        if row["group"] == strategy and row["policy"] == policy.research_name:
+        if row["group"] == strategy and row["policy"] == policy.research_name and row.get("exit", "fixed") == policy.exit_style:
             overall, oos = row["overall"], row.get("out_of_sample") or {}
             if not overall.get("n"):
                 return None
