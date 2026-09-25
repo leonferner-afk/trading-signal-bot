@@ -105,11 +105,12 @@ def run_scan(watchlist: list[str] | None = None, interval: str | None = None) ->
     no_trade_summary: list[dict] = []
 
     with StockClient() as client:
+        symbols_to_scan = watchlist if ANCHOR_SYMBOL in watchlist else [ANCHOR_SYMBOL] + watchlist
+        client.prefetch(symbols_to_scan, interval, limit=300)
+
         anchor_df, anchor_error = scan_symbol(client, ANCHOR_SYMBOL, interval)
         anchor_snapshot = latest_snapshot(anchor_df) if anchor_df is not None else None
         market_wide_risk = market_wide_risk_regime(anchor_snapshot)
-
-        symbols_to_scan = watchlist if ANCHOR_SYMBOL in watchlist else [ANCHOR_SYMBOL] + watchlist
 
         for symbol in symbols_to_scan:
             if symbol == ANCHOR_SYMBOL and anchor_df is not None:

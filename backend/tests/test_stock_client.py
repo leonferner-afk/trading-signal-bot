@@ -1,38 +1,28 @@
-"""Unit tests for StockClient's provider priority and failure handling —
-no network calls; `yf.Ticker` and `httpx.get` are monkeypatched with each
-of their known response shapes.
-
-For daily bars, the order is Twelve Data (if configured) -> Stooq ->
-Yahoo (yfinance) — see the comment on `get_klines` in stock_client.py for
-why. Intraday bars go to Yahoo only, since neither fallback has intraday
-history.
-"""
+"""StockClient provider order, batch cache and failure handling — no
+network; `yf.download`, `yf.Ticker` and `httpx.get` are monkeypatched."""
 from __future__ import annotations
 
-import datetime as dt
 import types
 
 import pandas as pd
 import pytest
 
-from app.data.stock_client import DataUnavailable, StockClient
+from app.data.stock_client import DataUnavailable, StockClient, normalize_frame
 
 
-def _make_client(**overrides) -> StockClient:
-    defaults = dict(max_retries=2, backoff=0.0, min_interval=0.0)
-    defaults.update(overrides)
-    return StockClient(**defaults)
+def _client() -> StockClient:
+    return StockClient(max_retries=2, backoff=0.0, min_interval=0.0)
 
 
-def _valid_yf_dataframe(rows: int = 5) -> pd.DataFrame:
-    dates = pd.date_range(end=dt.datetime.now(dt.timezone.utc), periods=rows, freq="D")
+def _yahoo_frame(rows: int = 5, start: str = "2026-09-14", scale: float = 1.0) -> pd.DataFrame:
+    idx = pd.date_range(start, periods=rows, freq="B", tz="America/New_York")
     return pd.DataFrame(
-        {"Open": 1.0, "High": 2.0, "Low": 0.5, "Close": 1.5, "Volume": 1000},
-        index=pd.DatetimeIndex(dates, name="Date"),
+        {"Open": 1.0 * scale, "High": 2.0 * scale, "Low": 0.5 * scale, "Close": 1.5 * scale, "Volume": 1000},
+        index=idx,
     )
 
 
-class _FakeTicker:
+class _Ticker:
     def __init__(self, queue: list):
         self._queue = queue
 
@@ -43,166 +33,89 @@ class _FakeTicker:
         return item
 
 
-def _patch_ticker(monkeypatch, queue: list):
-    monkeypatch.setattr(
-        "app.data.stock_client.yf.Ticker",
-        lambda symbol, session=None: _FakeTicker(queue),
-    )
+def _patch_ticker(monkeypatch, queue: list) -> None:
+    monkeypatch.setattr("app.data.stock_client.yf.Ticker", lambda symbol: _Ticker(queue))
 
 
-def _patch_ticker_unreachable(monkeypatch):
-    def _unexpected_call(symbol, session=None):
-        raise AssertionError("yfinance should not be called when Stooq already succeeded")
+def _forbid_ticker(monkeypatch) -> None:
+    def _boom(symbol):
+        raise AssertionError("per-symbol fetch should not happen when the batch cache covers it")
 
-    monkeypatch.setattr("app.data.stock_client.yf.Ticker", _unexpected_call)
-
-
-class _FakeHttpResponse:
-    def __init__(self, text: str = "", status_ok: bool = True, json_data=None):
-        self.text = text
-        self._status_ok = status_ok
-        self._json_data = json_data
-
-    def raise_for_status(self):
-        if not self._status_ok:
-            raise RuntimeError("http error")
-
-    def json(self):
-        return self._json_data
+    monkeypatch.setattr("app.data.stock_client.yf.Ticker", _boom)
 
 
-def _no_api_key(monkeypatch):
-    monkeypatch.setattr("app.data.stock_client.settings", types.SimpleNamespace(twelvedata_api_key=""))
+def test_daily_close_time_is_the_new_york_session_close():
+    frame = normalize_frame(_yahoo_frame(1, start="2026-09-24"), "1d", 5)
+    assert frame["close_time"].iloc[-1] == pd.Timestamp("2026-09-24 20:00", tz="UTC")
 
 
-def _valid_stooq_csv() -> str:
-    return "Date,Open,High,Low,Close,Volume\n2024-01-01,1.0,2.0,0.5,1.5,1000\n2024-01-02,1.1,2.1,0.6,1.6,1100\n"
+def test_prefetch_serves_get_klines_from_cache(monkeypatch):
+    batch = pd.concat({"AAPL": _yahoo_frame(), "MSFT": _yahoo_frame(scale=2)}, axis=1)
+    monkeypatch.setattr("app.data.stock_client.yf.download", lambda *a, **k: batch)
+    _forbid_ticker(monkeypatch)
+    client = _client()
+    assert client.prefetch(["AAPL", "MSFT"], "1d", limit=300) == {}
+    assert client.get_klines("MSFT", "1d", limit=300)["close"].iloc[-1] == 3.0
 
 
-def _patch_stooq_success(monkeypatch):
-    monkeypatch.setattr(
-        "app.data.stock_client.httpx.get",
-        lambda url, params, headers, timeout, follow_redirects: _FakeHttpResponse(_valid_stooq_csv()),
-    )
+def test_symbol_missing_from_batch_falls_back_to_single_fetch(monkeypatch):
+    empty = _yahoo_frame() * float("nan")
+    batch = pd.concat({"AAPL": _yahoo_frame(), "DEAD": empty}, axis=1)
+    monkeypatch.setattr("app.data.stock_client.yf.download", lambda *a, **k: batch)
+    client = _client()
+    missing = client.prefetch(["AAPL", "DEAD"], "1d", limit=300)
+    assert list(missing) == ["DEAD"]
+    _patch_ticker(monkeypatch, [_yahoo_frame(scale=3)])
+    assert client.get_klines("DEAD", "1d", limit=300)["close"].iloc[-1] == 4.5
 
 
-def _patch_stooq_failure(monkeypatch, text: str = "No data"):
-    monkeypatch.setattr(
-        "app.data.stock_client.httpx.get",
-        lambda url, params, headers, timeout, follow_redirects: _FakeHttpResponse(text),
-    )
-
-
-def test_stooq_is_tried_first_for_daily_bars_and_yfinance_is_skipped(monkeypatch):
-    _patch_ticker_unreachable(monkeypatch)
-    _patch_stooq_success(monkeypatch)
-    client = _make_client()
-    df = client.get_klines("AAPL", "1d", limit=5)
-    assert not df.empty
-    assert list(df["close"]) == [1.5, 1.6]
-
-
-def test_stooq_request_includes_required_date_range_params(monkeypatch):
-    # Stooq's CSV endpoint 404s without d1/d2 — regression guard for that.
-    captured = {}
-
-    def _fake_get(url, params, headers, timeout, follow_redirects):
-        captured.update(params)
-        return _FakeHttpResponse(_valid_stooq_csv())
-
-    monkeypatch.setattr("app.data.stock_client.httpx.get", _fake_get)
-    client = _make_client()
-    client.get_klines("AAPL", "1d", limit=5)
-    assert captured["s"] == "aapl.us"
-    assert captured["i"] == "d"
-    assert len(captured["d1"]) == 8  # YYYYMMDD
-    assert len(captured["d2"]) == 8
-
-
-def test_falls_back_to_yfinance_when_stooq_fails_for_daily(monkeypatch):
-    _patch_stooq_failure(monkeypatch)
-    _patch_ticker(monkeypatch, [_valid_yf_dataframe()])
-    client = _make_client()
-    df = client.get_klines("AAPL", "1d", limit=5)
-    assert not df.empty
-
-
-def test_yfinance_retries_before_giving_up_on_intraday(monkeypatch):
-    # First attempt fails (transient empty response), second succeeds —
-    # must not give up after just one failed attempt. Intraday bypasses
-    # Stooq entirely, so this exercises yfinance's own retry loop directly.
-    queue = [RuntimeError("empty response for AAPL 5m"), _valid_yf_dataframe()]
+def test_yfinance_retries_before_giving_up(monkeypatch):
+    queue = [RuntimeError("transient"), _yahoo_frame()]
     _patch_ticker(monkeypatch, queue)
-    client = _make_client()
-    df = client.get_klines("AAPL", "5m", limit=5)
-    assert not df.empty
+    assert not _client().get_klines("AAPL", "1d", limit=5).empty
     assert queue == []
 
 
-def test_no_stooq_call_for_intraday_intervals(monkeypatch):
-    def _unexpected_stooq_call(*args, **kwargs):
-        raise AssertionError("stooq should never be called for intraday intervals")
-
-    monkeypatch.setattr("app.data.stock_client.httpx.get", _unexpected_stooq_call)
-    _patch_ticker(monkeypatch, [RuntimeError("empty"), RuntimeError("empty")])
-    client = _make_client()
+def test_unavailable_without_fallback_key(monkeypatch):
+    monkeypatch.setattr("app.data.stock_client.settings", types.SimpleNamespace(twelvedata_api_key=""))
+    _patch_ticker(monkeypatch, [RuntimeError("blocked"), RuntimeError("blocked")])
     with pytest.raises(DataUnavailable):
-        client.get_klines("AAPL", "5m", limit=5)
+        _client().get_klines("AAPL", "1d", limit=5)
 
 
-def test_raises_dataunavailable_when_both_providers_fail(monkeypatch):
-    _patch_stooq_failure(monkeypatch)
-    _patch_ticker(monkeypatch, [RuntimeError("empty"), RuntimeError("empty")])
-    client = _make_client()
-    with pytest.raises(DataUnavailable):
-        client.get_klines("AAPL", "1d", limit=5)
+class _Resp:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._payload
 
 
-def _valid_twelvedata_json() -> dict:
-    return {
+def test_twelvedata_fallback_sorted_oldest_first(monkeypatch):
+    monkeypatch.setattr("app.data.stock_client.settings", types.SimpleNamespace(twelvedata_api_key="k"))
+    _patch_ticker(monkeypatch, [RuntimeError("blocked"), RuntimeError("blocked")])
+    payload = {
         "status": "ok",
-        "values": [
-            # Twelve Data returns newest-first — deliberately out of order
-            # here to exercise the ascending-sort fix.
-            {"datetime": "2024-01-02", "open": "1.1", "high": "2.1", "low": "0.6", "close": "1.6", "volume": "1100"},
-            {"datetime": "2024-01-01", "open": "1.0", "high": "2.0", "low": "0.5", "close": "1.5", "volume": "1000"},
+        "values": [  # newest first, as the API returns them
+            {"datetime": "2026-09-24", "open": "2", "high": "3", "low": "1", "close": "2.5", "volume": "10"},
+            {"datetime": "2026-09-23", "open": "1", "high": "2", "low": "0.5", "close": "1.5", "volume": "10"},
         ],
     }
+    monkeypatch.setattr("app.data.stock_client.httpx.get", lambda *a, **k: _Resp(payload))
+    df = _client().get_klines("AAPL", "1d", limit=5)
+    assert list(df["close"]) == [1.5, 2.5]
 
 
-def test_twelvedata_tried_first_when_configured_and_others_skipped(monkeypatch):
-    monkeypatch.setattr("app.data.stock_client.settings", types.SimpleNamespace(twelvedata_api_key="fake-key"))
-    _patch_ticker_unreachable(monkeypatch)
+def test_intraday_never_uses_daily_fallback(monkeypatch):
+    monkeypatch.setattr("app.data.stock_client.settings", types.SimpleNamespace(twelvedata_api_key="k"))
+    _patch_ticker(monkeypatch, [RuntimeError("blocked"), RuntimeError("blocked")])
 
-    def _fake_get(url, **kwargs):
-        if "twelvedata" not in url:
-            raise AssertionError("stooq should not be called when Twelve Data succeeds")
-        return _FakeHttpResponse(json_data=_valid_twelvedata_json())
+    def _boom(*a, **k):
+        raise AssertionError("daily fallback must not serve intraday requests")
 
-    monkeypatch.setattr("app.data.stock_client.httpx.get", _fake_get)
-    client = _make_client()
-    df = client.get_klines("AAPL", "1d", limit=5)
-    # Ascending despite the provider's newest-first order.
-    assert list(df["close"]) == [1.5, 1.6]
-
-
-def test_twelvedata_not_called_without_api_key(monkeypatch):
-    _no_api_key(monkeypatch)
-    _patch_stooq_success(monkeypatch)
-    client = _make_client()
-    df = client.get_klines("AAPL", "1d", limit=5)
-    assert not df.empty  # Stooq served it directly, twelvedata never in the mix
-
-
-def test_falls_back_to_stooq_when_twelvedata_fails(monkeypatch):
-    monkeypatch.setattr("app.data.stock_client.settings", types.SimpleNamespace(twelvedata_api_key="fake-key"))
-
-    def _fake_get(url, **kwargs):
-        if "twelvedata" in url:
-            return _FakeHttpResponse(json_data={"status": "error", "message": "rate limit"})
-        return _FakeHttpResponse(text=_valid_stooq_csv())
-
-    monkeypatch.setattr("app.data.stock_client.httpx.get", _fake_get)
-    client = _make_client()
-    df = client.get_klines("AAPL", "1d", limit=5)
-    assert not df.empty
+    monkeypatch.setattr("app.data.stock_client.httpx.get", _boom)
+    with pytest.raises(DataUnavailable):
+        _client().get_klines("AAPL", "5m", limit=5)

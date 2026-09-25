@@ -14,6 +14,12 @@ def _split_csv(value: str) -> list[str]:
     return [v.strip().upper() for v in value.split(",") if v.strip()]
 
 
+def _default_universe() -> tuple[str, ...]:
+    from app.universe import default_universe
+
+    return default_universe()
+
+
 @dataclass(frozen=True)
 class Settings:
     # Market data provider (Yahoo Finance via `yfinance` — no API key
@@ -24,41 +30,20 @@ class Settings:
     retry_backoff_seconds: float = float(os.getenv("HTTP_RETRY_BACKOFF_SECONDS", "0.5"))
     min_request_interval_seconds: float = float(os.getenv("HTTP_MIN_INTERVAL_SECONDS", "0.15"))
 
-    # Optional: a free Twelve Data API key (https://twelvedata.com, no
-    # card required, 800 calls/day). Yahoo and Stooq are both unofficial
-    # scrapers and can be blocked wholesale on a cloud host's shared
-    # egress IP with no client-side fix — an official, key-authenticated
-    # API doesn't have that failure mode. Used as the primary daily-bar
-    # source when set; the app still works $0/key-free without it via
-    # Stooq -> Yahoo, just less reliably on some hosts.
+    # Optional fallback data source for daily bars (free key at
+    # twelvedata.com), used only for symbols Yahoo fails to return.
     twelvedata_api_key: str = os.getenv("TWELVE_DATA_API_KEY", "")
 
-    # How stale a candle close can be before the scanner refuses to score
-    # it. Daily bars are timestamped at the trading day's date (not the
-    # actual 4pm ET close), and markets are closed weekends/holidays, so
-    # this needs several days of slack, unlike crypto's 24/7 5-minute one.
+    # How stale the newest *closed* daily bar may be before the scanner
+    # refuses to score a symbol. Covers weekends and market holidays.
     max_data_age_seconds: int = int(os.getenv("MAX_DATA_AGE_SECONDS", str(5 * 24 * 3600)))
 
-    # Starting watchlist — liquid, historically volatile US growth/momentum
-    # names spanning several sectors (semis/AI, EV, biotech, fintech,
-    # crypto-adjacent, cybersecurity, space), meant as an editable starting
-    # point (change it in Settings), not a curated "best picks"
-    # endorsement. Widened from an initial ~24 to ~50 names to meaningfully
-    # increase the odds of catching a rare large mover somewhere in the
-    # list, while staying liquid enough for reliable daily data — still a
-    # watchlist, not the whole market, at $0 data budget; see README.
+    # Scan universe: WATCHLIST (comma-separated) if set, otherwise the
+    # ~200-stock default in app/universe.py.
     watchlist: tuple[str, ...] = field(
-        default_factory=lambda: tuple(
-            _split_csv(
-                os.getenv(
-                    "WATCHLIST",
-                    "NVDA,TSLA,AMD,PLTR,SMCI,MSTR,COIN,SOFI,RBLX,DKNG,CVNA,UPST,"
-                    "AFRM,HOOD,RIVN,MARA,RIOT,IONQ,ARM,CRWD,NET,SNOW,SHOP,ROKU,"
-                    "MU,MRVL,ON,MRNA,NVAX,CRSP,NTLA,NIO,LI,XPEV,ENPH,PLUG,FSLR,"
-                    "SQ,OKTA,RKLB,CHWY,ETSY,W,CLSK,HUT,AI,SOUN,BBAI,BEAM,EDIT",
-                )
-            )
-        )
+        default_factory=lambda: tuple(_split_csv(os.environ["WATCHLIST"]))
+        if os.getenv("WATCHLIST")
+        else _default_universe()
     )
     # Daily bars — this is a swing/position-trade caller (weeks-to-months
     # horizon hunting large moves), not an intraday scalper.

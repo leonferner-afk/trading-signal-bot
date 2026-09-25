@@ -1,28 +1,30 @@
-"""Real market-data client for US stocks via Yahoo Finance (`yfinance`).
+"""Real market-data client for US stocks.
 
-No API key required — this wraps Yahoo Finance's public chart data, which
-is genuinely live/historical market data, not a mock. Chosen because it's
-the only zero-cost option that covers thousands of US tickers without a
-paid plan (Alpha Vantage's free tier allows 25 requests/day — unusable for
-scanning a watchlist; Finnhub's free tier no longer includes stock
-candles). `yfinance` is unofficial (it scrapes Yahoo's own chart API,
-there's no published SLA), so retries + a `DataUnavailable` escape hatch
-matter even more here than for an official API — a request that fails
-after retries must surface as "no data", never a guess.
+Primary source: Yahoo Finance via `yfinance` (no key). Verified working
+from GitHub Actions runners, which is where the bot runs day to day.
+Optional fallback for daily bars: Twelve Data (TWELVE_DATA_API_KEY), an
+official key-authenticated API, used only if Yahoo fails for a symbol.
 
-If/when this project's budget changes, swapping in a paid provider (e.g.
-Polygon.io, Twelve Data) means changing only this file — every other
-module talks to it through the same `get_klines(symbol, interval, limit)`
-shape used by the (removed) Binance client, and expects the same minimal
-set of columns.
+`prefetch()` pulls a whole universe in a handful of batched requests and
+caches it, so a scan of hundreds of symbols costs a few HTTP calls rather
+than one (or several, with retries) per symbol. `get_klines()` serves from
+that cache when it covers the request and falls back to per-symbol fetches
+otherwise.
+
+Every bar's `close_time` is the moment that bar actually closed: for daily
+and longer bars that's 16:00 America/New_York on the bar's date, not
+midnight — otherwise a still-trading session would pass as a finished bar
+and the scanner would score half a day's candle.
+
+A symbol that can't be fetched surfaces as `DataUnavailable` — never a
+guess, never placeholder data.
 """
 from __future__ import annotations
 
-import datetime as dt
-import io
+import logging
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 import pandas as pd
@@ -30,15 +32,14 @@ import yfinance as yf
 
 from app.config import settings
 
-BROWSER_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
+logger = logging.getLogger("tradingbot.data")
 
 REQUIRED_COLUMNS = ["open_time", "open", "high", "low", "close", "volume", "close_time"]
 
-_INTRADAY_INTERVALS = {"1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h"}
+_INTRADAY_MINUTES = {"1m": 1, "2m": 2, "5m": 5, "15m": 15, "30m": 30, "60m": 60, "90m": 90, "1h": 60}
 _SHORT_INTRADAY = {"1m", "2m", "5m"}
+_MARKET_TZ = "America/New_York"
+_BATCH_SIZE = 100
 
 
 class DataUnavailable(RuntimeError):
@@ -50,98 +51,79 @@ class DataUnavailable(RuntimeError):
 
 
 def _period_for(interval: str, limit: int) -> str:
-    """Yahoo's history() takes a period/date-range, not a bar count, so we
-    request generously more calendar time than `limit` bars need and trim
-    afterwards. Yahoo also caps how far back intraday data goes (60 days
-    for 1-5m bars, ~2 years for 60-90m bars) regardless of what we ask for."""
-    if interval in _INTRADAY_INTERVALS:
+    """Yahoo takes a calendar period, not a bar count, so we ask for
+    comfortably more than `limit` bars need and trim afterwards. Yahoo also
+    caps intraday history (60 days for 1-5m, ~2 years for 60-90m)."""
+    if interval in _INTRADAY_MINUTES:
         return "60d" if interval in _SHORT_INTRADAY else "730d"
     if interval == "1wk":
-        years = min(max(2, math.ceil(limit / 45)), 25)
-        return f"{years}y"
+        return f"{min(max(2, math.ceil(limit / 45)), 25)}y"
     if interval == "1mo":
         return "25y"
-    # Daily (and anything else): trading days ≈ 252/year; buffer generously
-    # for weekends/holidays already excluded from that count.
-    years = min(max(1, math.ceil(limit / 200)), 25)
-    return f"{years}y"
+    return f"{min(max(1, math.ceil(limit / 200)), 25)}y"
 
 
-def _rows_from_dataframe(df: pd.DataFrame, column_map: dict[str, str], limit: int) -> pd.DataFrame:
-    df = df.rename(columns=column_map)
-    df["close_time"] = pd.to_datetime(df["close_time"], utc=True)
-    df["open_time"] = df["close_time"]
-    df = df[REQUIRED_COLUMNS].dropna(subset=["open", "high", "low", "close", "volume"])
-    if df.empty:
+def _period_years(period: str) -> float:
+    if period.endswith("y"):
+        return float(period[:-1])
+    if period.endswith("d"):
+        return float(period[:-1]) / 365.0
+    return 0.0
+
+
+def _close_times(index: pd.Index, interval: str) -> pd.Series:
+    """When each bar actually closed, in UTC."""
+    idx = pd.DatetimeIndex(index)
+    if interval in _INTRADAY_MINUTES:
+        if idx.tz is None:
+            idx = idx.tz_localize(_MARKET_TZ)
+        return pd.Series(idx.tz_convert("UTC") + pd.Timedelta(minutes=_INTRADAY_MINUTES[interval]), index=range(len(idx)))
+    # Daily or longer: the bar is labelled by its (first) trading date;
+    # it's complete at that session's close. Weekly/monthly bars are
+    # labelled by their first day, so their true close is later still —
+    # the scanner only uses daily bars, and the freshness check tolerates
+    # the difference for the rest.
+    dates = idx.tz_localize(None) if idx.tz is not None else idx
+    closes = dates.normalize() + pd.Timedelta(hours=16)
+    return pd.Series(closes.tz_localize(_MARKET_TZ).tz_convert("UTC"), index=range(len(idx)))
+
+
+def normalize_frame(raw: pd.DataFrame, interval: str, limit: int) -> pd.DataFrame:
+    """Yahoo-shaped OHLCV (DatetimeIndex, Open/High/Low/Close/Volume) ->
+    the app's canonical frame, oldest first, last `limit` bars."""
+    if raw is None or raw.empty:
+        raise RuntimeError("empty response")
+    frame = raw.rename(columns=str.lower)[["open", "high", "low", "close", "volume"]].reset_index(drop=True)
+    frame["close_time"] = _close_times(raw.index, interval)
+    frame["open_time"] = frame["close_time"]
+    frame = frame[REQUIRED_COLUMNS].dropna(subset=["open", "high", "low", "close", "volume"])
+    frame = frame[(frame["high"] > 0) & (frame["low"] > 0)]
+    if frame.empty:
         raise RuntimeError("no usable rows")
-    # Sort ascending regardless of provider order — Yahoo/Stooq already are,
-    # but Twelve Data's JSON returns newest-first, and `tail(limit)` needs
-    # ascending order to keep the most recent bars rather than the oldest.
-    df = df.sort_values("close_time").tail(limit).reset_index(drop=True)
-    return df.set_index("close_time", drop=False)
+    frame = frame.sort_values("close_time").drop_duplicates("close_time", keep="last").tail(limit).reset_index(drop=True)
+    return frame.set_index("close_time", drop=False)
 
 
 def _fetch_twelvedata_daily(symbol: str, limit: int) -> pd.DataFrame:
-    """Primary daily-bar source when TWELVE_DATA_API_KEY is set. An
-    official, key-authenticated API — unlike Yahoo/Stooq (both unofficial
-    scrapers), it can't be silently blocked wholesale on a cloud host's
-    shared egress IP. Raises RuntimeError (never DataUnavailable directly
-    — that's the caller's job) so the Stooq/Yahoo chain still runs if this
-    fails for any reason (no key, rate limit, API outage)."""
+    """Optional daily-bar fallback when TWELVE_DATA_API_KEY is set."""
     api_key = settings.twelvedata_api_key
     if not api_key:
         raise RuntimeError("no Twelve Data API key configured")
-    params = {
-        "symbol": symbol.upper(),
-        "interval": "1day",
-        "outputsize": min(max(limit, 1), 5000),
-        "apikey": api_key,
-        "format": "JSON",
-    }
-    resp = httpx.get("https://api.twelvedata.com/time_series", params=params, timeout=15.0)
+    resp = httpx.get(
+        "https://api.twelvedata.com/time_series",
+        params={"symbol": symbol.upper(), "interval": "1day", "outputsize": min(max(limit, 1), 5000), "apikey": api_key},
+        timeout=15.0,
+    )
     resp.raise_for_status()
     payload = resp.json()
     values = payload.get("values")
     if payload.get("status") == "error" or not values:
-        raise RuntimeError(f"twelvedata: {payload.get('message', payload)}")
+        raise RuntimeError(f"twelvedata: {payload.get('message', 'no values')}")
     df = pd.DataFrame(values)
+    df.index = pd.to_datetime(df.pop("datetime"))
     for col in ("open", "high", "low", "close", "volume"):
         df[col] = pd.to_numeric(df[col], errors="coerce")
-    return _rows_from_dataframe(df, {"datetime": "close_time"}, limit)
-
-
-def _fetch_stooq_daily(symbol: str, limit: int) -> pd.DataFrame:
-    """Fallback for daily bars, used only once Yahoo has failed outright.
-    Stooq is a completely separate, key-free CSV data source — an
-    IP-level block or outage on Yahoo's side doesn't take this down too.
-    Daily-only (no intraday history), which matches how this app actually
-    scans (1d bars) so the fallback covers the real usage."""
-    years = min(max(1, math.ceil(limit / 200)), 25)
-    end = dt.date.today()
-    start = end - dt.timedelta(days=years * 366)
-    params = {
-        "s": f"{symbol.lower()}.us",
-        "d1": start.strftime("%Y%m%d"),
-        "d2": end.strftime("%Y%m%d"),
-        "i": "d",
-    }
-    resp = httpx.get(
-        "https://stooq.com/q/d/l/",
-        params=params,
-        headers={"User-Agent": BROWSER_USER_AGENT},
-        timeout=15.0,
-        follow_redirects=True,
-    )
-    resp.raise_for_status()
-    text = resp.text.strip()
-    if not text or "Date" not in text.splitlines()[0]:
-        raise RuntimeError(f"stooq: unexpected response for {symbol}: {text[:200]!r}")
-    df = pd.read_csv(io.StringIO(text))
-    return _rows_from_dataframe(
-        df,
-        {"Date": "close_time", "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"},
-        limit,
-    )
+    return normalize_frame(df, "1d", limit)
 
 
 @dataclass
@@ -149,9 +131,8 @@ class StockClient:
     max_retries: int = settings.max_retries
     backoff: float = settings.retry_backoff_seconds
     min_interval: float = settings.min_request_interval_seconds
-
-    def __post_init__(self) -> None:
-        self._last_request_at = 0.0
+    _cache: dict[tuple[str, str], tuple[float, pd.DataFrame]] = field(default_factory=dict, init=False, repr=False)
+    _last_request_at: float = field(default=0.0, init=False, repr=False)
 
     def __enter__(self) -> "StockClient":
         return self
@@ -163,82 +144,75 @@ class StockClient:
         pass
 
     def _throttle(self) -> None:
-        elapsed = time.monotonic() - self._last_request_at
-        wait = self.min_interval - elapsed
+        wait = self.min_interval - (time.monotonic() - self._last_request_at)
         if wait > 0:
             time.sleep(wait)
+        self._last_request_at = time.monotonic()
+
+    def prefetch(self, symbols: list[str], interval: str = "1d", limit: int = 500) -> dict[str, str]:
+        """Batch-download `symbols` into the cache. Returns {symbol: reason}
+        for any symbol the batch didn't cover — those fall back to a
+        per-symbol fetch when requested, so a partial batch is never fatal."""
+        period = _period_for(interval, limit)
+        wanted = sorted({s.upper() for s in symbols})
+        missing: dict[str, str] = {}
+        for start in range(0, len(wanted), _BATCH_SIZE):
+            chunk = wanted[start:start + _BATCH_SIZE]
+            raw = None
+            for attempt in range(1, self.max_retries + 1):
+                self._throttle()
+                try:
+                    raw = yf.download(
+                        chunk, period=period, interval=interval, group_by="ticker",
+                        auto_adjust=True, threads=True, progress=False,
+                    )
+                    break
+                except Exception as exc:  # yfinance raises many types
+                    logger.warning("Batch download attempt %d failed: %s", attempt, exc)
+                    time.sleep(self.backoff * attempt)
+            for symbol in chunk:
+                try:
+                    if raw is None or symbol not in raw.columns.get_level_values(0):
+                        raise RuntimeError("not in batch response")
+                    frame = normalize_frame(raw[symbol], interval, limit)
+                    self._cache[(symbol, interval)] = (_period_years(period), frame)
+                except Exception as exc:
+                    missing[symbol] = str(exc)
+        if missing:
+            logger.info("Prefetch: %d/%d symbols not covered by batch: %s", len(missing), len(wanted), sorted(missing))
+        return missing
 
     def get_klines(self, symbol: str, interval: str, limit: int = 500) -> pd.DataFrame:
-        """Fetch recent candles. Returns a DataFrame indexed by close_time
-        (UTC), matching the shape the scanner/backtester expect.
+        """Recent candles, oldest first, indexed by close_time (UTC)."""
+        symbol = symbol.upper()
+        period = _period_for(interval, limit)
+        cached = self._cache.get((symbol, interval))
+        if cached and cached[0] >= _period_years(period):
+            return cached[1].tail(limit)
 
-        Yahoo's history index marks each bar by its trading-day (daily+)
-        or bar-start (intraday) timestamp with no separate open/close
-        split like Binance's kline schema has — `open_time` is set equal
-        to `close_time` here since nothing downstream relies on it being
-        distinct (see module docstring / the one call site that falls
-        back to it, `backtest/engine.py`, only for the otherwise-unused
-        very first bar of a series).
-
-        For daily bars — this app's only real usage (see config.py) — the
-        provider order is Twelve Data (if TWELVE_DATA_API_KEY is set) ->
-        Stooq -> Yahoo, not Yahoo-first: on this deployment's outbound IP,
-        Yahoo *and* Stooq have both failed every attempt across several
-        independent fixes (retries, TLS impersonation, User-Agent
-        alignment, Stooq's own date-range requirement), consistent with a
-        cloud host's shared egress IP being blocked wholesale by both
-        unofficial scrapers — not something a request-shape tweak fixes.
-        Twelve Data is an official, key-authenticated API, so it doesn't
-        share that failure mode. Without a key configured, behavior is
-        unchanged (Stooq -> Yahoo, still $0/key-free).
-        Intraday intervals go to Yahoo only — none of the daily fallbacks
-        have intraday history.
-        """
-        if interval != "1d":
-            return self._fetch_yfinance(symbol, interval, limit)
-
-        errors: list[str] = [f"twelvedata: no key configured (TWELVE_DATA_API_KEY not set on this deployment)"]
-        if settings.twelvedata_api_key:
-            errors[0] = f"twelvedata: key detected ({len(settings.twelvedata_api_key)} chars)"
+        errors: list[str] = []
+        try:
+            frame = self._fetch_yfinance(symbol, interval, limit, period)
+            self._cache[(symbol, interval)] = (_period_years(period), frame)
+            return frame
+        except DataUnavailable as exc:
+            errors.append(f"yfinance: {exc}")
+        if interval == "1d" and settings.twelvedata_api_key:
             try:
                 return _fetch_twelvedata_daily(symbol, limit)
             except Exception as exc:
-                errors[0] = f"twelvedata: {exc}"
-        try:
-            return _fetch_stooq_daily(symbol, limit)
-        except Exception as exc:
-            errors.append(f"stooq: {exc}")
-        try:
-            return self._fetch_yfinance(symbol, interval, limit)
-        except DataUnavailable as exc:
-            errors.append(f"yfinance: {exc}")
-            raise DataUnavailable(
-                f"all data providers failed for {symbol} {interval} — " + "; ".join(errors)
-            ) from exc
+                errors.append(f"twelvedata: {exc}")
+        raise DataUnavailable(f"no data for {symbol} {interval} — " + "; ".join(errors))
 
-    def _fetch_yfinance(self, symbol: str, interval: str, limit: int) -> pd.DataFrame:
-        period = _period_for(interval, limit)
+    def _fetch_yfinance(self, symbol: str, interval: str, limit: int, period: str) -> pd.DataFrame:
         last_error: Exception | None = None
         for attempt in range(1, self.max_retries + 1):
             self._throttle()
             try:
-                self._last_request_at = time.monotonic()
-                ticker = yf.Ticker(symbol.upper())
-                raw = ticker.history(period=period, interval=interval, auto_adjust=True)
-                if raw is None or raw.empty:
-                    raise RuntimeError(f"empty response for {symbol} {interval}")
-
-                df = raw.reset_index()
-                date_col = "Date" if "Date" in df.columns else "Datetime"
-                return _rows_from_dataframe(
-                    df,
-                    {date_col: "close_time", "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"},
-                    limit,
-                )
-            except Exception as exc:  # yfinance surfaces requests/HTTP/JSON errors (and our own empty-response/no-rows signals), not one clean type
+                raw = yf.Ticker(symbol).history(period=period, interval=interval, auto_adjust=True)
+                return normalize_frame(raw, interval, limit)
+            except Exception as exc:
                 last_error = exc
                 if attempt < self.max_retries:
                     time.sleep(self.backoff * attempt)
-        raise DataUnavailable(
-            f"yfinance fetch for {symbol} {interval} failed after {self.max_retries} attempts: {last_error}"
-        ) from last_error
+        raise DataUnavailable(f"failed after {self.max_retries} attempts: {last_error}") from last_error

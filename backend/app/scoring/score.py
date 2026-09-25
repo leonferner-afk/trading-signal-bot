@@ -115,7 +115,12 @@ def build_signal(
     regime_snapshot: RegimeSnapshot,
     news: NewsResult,
     market_wide_risk: str = "NEUTRAL",
+    *,
+    tier_thresholds: tuple[float, float, float] | None = None,
 ) -> Signal:
+    """`tier_thresholds` = (exceptional, high_quality, watch) minimums;
+    omit to use the live settings. Research passes them explicitly so a
+    million-bar backtest doesn't hit the settings DB on every bar."""
     regime_component = regime_fit_score(candidate.strategy, regime_snapshot) / 10.0 * REGIME_MAX
     catalyst_component, catalyst_reason = catalyst_score(news, candidate.direction)
 
@@ -129,7 +134,11 @@ def build_signal(
     total = round(
         momentum + volume + structure + regime_component + catalyst_component + risk_reward_component, 2
     )
-    tier = tier_for_score(total)
+    if tier_thresholds is None:
+        tier = tier_for_score(total)
+    else:
+        exceptional_min, high_quality_min, watch_min = tier_thresholds
+        tier = tier_for_score(total, exceptional_min=exceptional_min, high_quality_min=high_quality_min, watch_min=watch_min)
 
     breakdown = ScoreBreakdown(
         momentum=round(momentum, 2),

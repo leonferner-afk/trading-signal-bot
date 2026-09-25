@@ -130,3 +130,25 @@ def test_entry_hour_timing_pattern_finds_common_hours():
     pattern = entry_hour_timing_pattern(trades, top_n=1, min_trades=20)
     assert pattern["common_hours_utc"] == [14]
     assert pattern["based_on_trades"] == 25
+
+
+def test_gap_through_stop_fills_at_the_open_not_the_stop():
+    df = make_synthetic_ohlcv(n=6, start_price=100.0, trend_per_bar=0.0, volatility=0.001)
+    # Bar 3 gaps down overnight far below the 95 stop.
+    for col, value in (("open", 80.0), ("high", 82.0), ("low", 78.0), ("close", 81.0)):
+        df.iloc[3, df.columns.get_loc(col)] = value
+    trade = simulate_trade(
+        df, entry_index=1, direction="LONG", stop=95.0, target=150.0,
+        fee_bps=0, slippage_bps=0, max_holding_bars=20,
+    )
+    assert trade.result == "STOP_HIT"
+    assert trade.exit_price == 80.0  # filled at the gap open, ~-20%, not the -5% the stop implied
+
+
+def test_no_trade_when_entry_bar_opens_beyond_the_stop():
+    df = make_synthetic_ohlcv(n=6, start_price=100.0, trend_per_bar=0.0, volatility=0.001)
+    df.iloc[1, df.columns.get_loc("open")] = 90.0  # setup already invalidated overnight
+    assert simulate_trade(
+        df, entry_index=1, direction="LONG", stop=95.0, target=150.0,
+        fee_bps=0, slippage_bps=0, max_holding_bars=20,
+    ) is None
