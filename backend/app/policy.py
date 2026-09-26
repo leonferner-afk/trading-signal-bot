@@ -173,13 +173,18 @@ def active_rotation_params() -> RotationParams:
     from app.config import settings
 
     d = DEFAULT_ROTATION
+    rebalance = (os.getenv("ROTATION_REBALANCE") or d.rebalance).strip().lower()
+    max_positions = int(os.getenv("ROTATION_MAX_POSITIONS") or d.max_positions)
     return RotationParams(
-        max_positions=int(os.getenv("ROTATION_MAX_POSITIONS") or d.max_positions),
+        max_positions=max_positions,
         entry_rs=float(os.getenv("ROTATION_ENTRY_RS") or d.entry_rs),
         exit_rs=float(os.getenv("ROTATION_EXIT_RS") or d.exit_rs),
         regime_exit=_env_bool("ROTATION_REGIME_EXIT", d.regime_exit),
         stop_pct=float(os.getenv("ROTATION_STOP_PCT") or d.stop_pct),
-        max_new_per_day=settings.max_new_buys_per_day,
+        # Monthly rule sets fill every free slot on the rebalance day (as tested).
+        max_new_per_day=max_positions if rebalance == "monthly" else settings.max_new_buys_per_day,
+        momentum=(os.getenv("ROTATION_MOMENTUM") or d.momentum).strip(),
+        rebalance=rebalance,
     )
 
 

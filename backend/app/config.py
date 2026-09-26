@@ -66,10 +66,11 @@ class Settings:
 
     # Costs applied in every backtest/paper trade — a strategy that is only
     # profitable before these is not profitable.
-    # Defaults model a Swedish retail account buying US stocks: ~0.10-0.15%
-    # courtage + ~0.25% currency conversion per side, plus slippage — the
-    # same 40 bps per side the research uses as its primary cost level.
-    fee_bps: float = float(_env("FEE_BPS", "35"))
+    # Defaults model trading US stocks from a USD account at a Swedish
+    # broker: ~0.15% courtage per side plus slippage — the same 20 bps per
+    # side the research uses as its primary cost level. From a SEK account
+    # (currency conversion every trade) set FEE_BPS=35.
+    fee_bps: float = float(_env("FEE_BPS", "15"))
     slippage_bps: float = float(_env("SLIPPAGE_BPS", "5"))
 
     # No stock news/catalyst provider is wired up yet — see

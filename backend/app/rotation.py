@@ -22,7 +22,7 @@ the live daily run, so the live bot does exactly what was tested:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -36,6 +36,8 @@ class RotationParams:
     regime_exit: bool = False
     stop_pct: float = 0.0          # 0 = no protective stop order
     max_new_per_day: int = 3
+    momentum: str = "6m"           # "6m" | "12-1" | "6m_vol" — see momentum_score()
+    rebalance: str = "daily"       # "daily" | "monthly" (first session of each month)
 
     @property
     def name(self) -> str:
@@ -44,7 +46,31 @@ class RotationParams:
             parts.append("sell all when SPY<200d")
         if self.stop_pct:
             parts.append(f"stop -{self.stop_pct * 100:g}%")
+        if self.momentum != "6m":
+            parts.append({"12-1": "12-1 month momentum", "6m_vol": "volatility-adjusted"}[self.momentum])
+        if self.rebalance == "monthly":
+            parts.append("monthly")
         return ", ".join(parts)
+
+
+MOMENTUM_KINDS = ("6m", "12-1", "6m_vol")
+
+
+def momentum_score(close: pd.DataFrame, kind: str) -> pd.DataFrame:
+    """Strength score per row (session) and column (stock), using data up
+    to that row only. Shared by the research panel and the live run.
+      6m      6-month (126-session) return
+      12-1    return from 12 months ago to 1 month ago (skips the last month,
+              the classic academic definition)
+      6m_vol  6-month return divided by its annualised daily volatility"""
+    if kind == "6m":
+        return close / close.shift(RS_LOOKBACK) - 1
+    if kind == "12-1":
+        return close.shift(21) / close.shift(252) - 1
+    if kind == "6m_vol":
+        vol = close.pct_change(fill_method=None).rolling(RS_LOOKBACK, min_periods=RS_LOOKBACK).std() * np.sqrt(252)
+        return (close / close.shift(RS_LOOKBACK) - 1) / vol
+    raise ValueError(f"unknown momentum kind {kind!r}")
 
 
 def decide(
@@ -107,6 +133,7 @@ class Panel:
     above_200: np.ndarray  # bool
     has_bar: np.ndarray    # bool: a real bar exists that day (no forward-fill)
     spy_above_200: np.ndarray
+    rs_by: dict = field(default_factory=dict)   # momentum kind -> percentile matrix (rs = "6m")
 
 
 def build_panel(frames: dict[str, pd.DataFrame], spy: pd.DataFrame, symbols: list[str]) -> Panel:
@@ -120,14 +147,13 @@ def build_panel(frames: dict[str, pd.DataFrame], spy: pd.DataFrame, symbols: lis
 
     close_raw = matrix("close")
     close = close_raw.ffill(limit=5)
-    ret_6m = close_raw / close_raw.shift(RS_LOOKBACK) - 1
-    rs = ret_6m.rank(axis=1, pct=True)
+    rs_by = {kind: momentum_score(close_raw, kind).rank(axis=1, pct=True).to_numpy(float) for kind in MOMENTUM_KINDS}
     sma200 = close_raw.rolling(200, min_periods=200).mean()
     above = (close_raw > sma200)
     spy_close = spy["close"]
     spy_above = (spy_close > spy_close.rolling(200, min_periods=200).mean()).to_numpy()
     return Panel(dates, symbols, matrix("open").to_numpy(float), matrix("low").to_numpy(float), close.to_numpy(float),
-                 rs.to_numpy(float), above.to_numpy(bool), close_raw.notna().to_numpy(), spy_above)
+                 rs_by["6m"], above.to_numpy(bool), close_raw.notna().to_numpy(), spy_above, rs_by)
 
 
 def simulate(panel: Panel, params: RotationParams, cost_bps: float, start: str | None = None,
@@ -144,6 +170,7 @@ def simulate(panel: Panel, params: RotationParams, cost_bps: float, start: str |
     pending_buys: list[int] = []
     curve, dates, exposure, trades = [], [], [], []
     col = {s: j for j, s in enumerate(panel.symbols)}
+    rs_matrix = panel.rs if params.momentum == "6m" else panel.rs_by[params.momentum]
 
     def close_position(j: int, price: float, i: int, reason: str) -> None:
         nonlocal cash
@@ -184,10 +211,13 @@ def simulate(panel: Panel, params: RotationParams, cost_bps: float, start: str |
         curve.append(equity)
         dates.append(panel.dates[i])
         exposure.append(value / equity if equity > 0 else 0.0)
-        # 4) decide tomorrow's orders from today's close
+        # 4) decide tomorrow's orders from today's close (monthly: only on
+        # the first session of a month).
+        if params.rebalance == "monthly" and not (i > 0 and panel.dates[i][:7] != panel.dates[i - 1][:7]):
+            continue
         # Only buy candidates and holdings can be affected by decide(), so
         # only they are passed (identical result, far faster).
-        row_rs = panel.rs[i]
+        row_rs = rs_matrix[i]
         relevant = set(np.flatnonzero((row_rs >= params.entry_rs) & panel.above_200[i]).tolist()) | set(positions)
         rs_today = {panel.symbols[j]: float(row_rs[j]) for j in relevant if np.isfinite(row_rs[j])}
         above_today = {panel.symbols[j]: bool(panel.above_200[i, j]) for j in relevant if panel.has_bar[i, j]}

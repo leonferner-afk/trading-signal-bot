@@ -242,7 +242,7 @@ def run_daily(report_dir: str | Path = "reports") -> DailyOutcome:
     stale = session is None or (now.date() - dt.date.fromisoformat(session)).days > MAX_SESSION_AGE_DAYS
 
     if mode == "rotation":
-        return _run_rotation(report_dir, today, client, universe, spy, session, new_session, stale, evidence)
+        return _run_rotation(report_dir, today, client, universe, spy, session, new_session, stale, evidence, last_session)
     return _run_swing(report_dir, today, now, client, universe, session, new_session, stale, evidence)
 
 
@@ -269,13 +269,13 @@ def _data_warning(stale: bool, ok: bool, session: str | None) -> str:
     return ""
 
 
-def _run_rotation(report_dir, today, client, universe, spy, session, new_session, stale, evidence) -> DailyOutcome:
+def _run_rotation(report_dir, today, client, universe, spy, session, new_session, stale, evidence, last_session=None) -> DailyOutcome:
     from app.live_rotation import build_rotation_report, run_rotation_day
     from app.paper_trading.simulator import ROTATION_EXIT
 
     params = active_rotation_params()
     act = new_session and not stale
-    day = run_rotation_day(client, universe, spy, params, evidence, "UNKNOWN", act)
+    day = run_rotation_day(client, universe, spy, params, evidence, "UNKNOWN", act, session, last_session)
     ok = not stale and (not act or len(day.features.skipped) < max(10, len(universe) // 2))
     open_positions = [(r, current_mark(client, r)) for r in journal.get_open_signals()]
     report = build_rotation_report(today, session, new_session, params, day, open_positions,

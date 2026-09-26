@@ -87,3 +87,60 @@ def test_protective_stop_fills_at_gap_open():
 def test_equal_weight_benchmark():
     panel = _panel({"A": [100, 110, 121], "B": [100, 90, 81]}, {"A": [0.5] * 3, "B": [0.5] * 3})
     assert list(equal_weight_benchmark(panel, 0)) == pytest.approx([1.0, 1.0, 1.0])
+
+
+def test_momentum_score_definitions():
+    from app.rotation import momentum_score
+
+    close = pd.DataFrame({"A": np.arange(1.0, 301.0)})
+    last = len(close) - 1
+    assert momentum_score(close, "6m").iloc[-1, 0] == pytest.approx(close.A[last] / close.A[last - 126] - 1)
+    assert momentum_score(close, "12-1").iloc[-1, 0] == pytest.approx(close.A[last - 21] / close.A[last - 252] - 1)
+    vol = close.A.pct_change().iloc[-126:].std() * np.sqrt(252)
+    assert momentum_score(close, "6m_vol").iloc[-1, 0] == pytest.approx((close.A[last] / close.A[last - 126] - 1) / vol)
+
+
+def test_live_features_rank_exactly_like_the_research_panel():
+    """The live bot must rank stocks the way the backtest did, for every variant."""
+    from app.live_rotation import market_features
+    from app.rotation import MOMENTUM_KINDS, build_panel
+
+    n = 330
+    dates = pd.bdate_range("2024-01-01", periods=n)
+    close_time = (dates.tz_localize("America/New_York") + pd.Timedelta(hours=16)).tz_convert("UTC")
+    rng = np.random.default_rng(3)
+    frames, research = {}, {}
+    for k, s in enumerate(["SPY", "A", "B", "C", "D", "E"]):
+        c = 100 * np.exp(np.cumsum(rng.normal(0.0005 * k, 0.02, n)))
+        frames[s] = pd.DataFrame({"open": c, "high": c, "low": c, "close": c, "volume": 1.0, "close_time": close_time})
+        research[s] = pd.DataFrame({"open": c, "low": c, "close": c}, index=dates.strftime("%Y-%m-%d"))
+
+    class Client:
+        def get_klines(self, symbol, interval, limit=500):
+            return frames[symbol].tail(limit)
+
+    symbols = ["A", "B", "C", "D", "E"]
+    panel = build_panel(research, research["SPY"], symbols)
+    for kind in MOMENTUM_KINDS:
+        live = market_features(Client(), symbols, frames["SPY"], kind).rs
+        expected = {s: panel.rs_by[kind][-1, j] for j, s in enumerate(panel.symbols)}
+        assert live == pytest.approx(expected), kind
+
+
+def test_monthly_rebalance_only_decides_on_a_months_first_session():
+    from app.live_rotation import is_rebalance_session
+
+    monthly = RotationParams(rebalance="monthly")
+    assert is_rebalance_session(monthly, "2026-10-01", "2026-09-30")
+    assert not is_rebalance_session(monthly, "2026-10-02", "2026-10-01")
+    assert is_rebalance_session(monthly, "2026-10-05", "2026-09-29")  # the 1st's run failed -> next run rebalances
+    assert is_rebalance_session(RotationParams(), "2026-10-02", "2026-10-01")
+
+    # Simulation: A is the leader all along, but it can only be bought after
+    # the first session of a new month.
+    closes = {"A": [100.0] * 6, "B": [50.0] * 6}
+    rs = {"A": [0.9] * 6, "B": [0.5] * 6}
+    panel = _panel(closes, rs)
+    panel.dates = ["2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-05"]
+    sim = _simulate_from_zero(panel, RotationParams(max_positions=1, rebalance="monthly", max_new_per_day=1), 0)
+    assert sim["exposure"][:4].max() == 0 and sim["exposure"][4] > 0   # decided at 10-01's close, filled 10-02

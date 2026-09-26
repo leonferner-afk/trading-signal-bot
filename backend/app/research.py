@@ -59,8 +59,8 @@ BASELINE_EVERY_N_BARS = 5
 RS_LOOKBACK = 126           # ~6 months
 HIGH_LOOKBACK = 252         # ~52 weeks
 WIDE_STOP_ATR_MULT = 2.5
-COST_BPS_PRIMARY = 40.0     # per side: ~0.15% courtage + 0.25% FX (SEK->USD), incl. slippage
-COST_BPS_GRID = (15.0, 40.0, 70.0)
+COST_BPS_PRIMARY = 20.0     # per side: ~0.15% courtage from a USD account + ~0.05% slippage
+COST_BPS_GRID = (20.0, 40.0, 70.0)   # 40 = trading from a SEK account (FX conversion every trade)
 MAX_OPEN = 8
 MAX_NEW_PER_DAY = 3
 RISK_PCT = 1.0
@@ -96,6 +96,13 @@ PORTFOLIO_CONFIGS = [
 ROTATION_GRID = [
     rot.RotationParams(max_positions=n, exit_rs=x, regime_exit=r, stop_pct=sp, max_new_per_day=MAX_NEW_PER_DAY)
     for n in (5, 8) for x in (0.5, 0.7) for r in (False, True) for sp in (0.0, 0.2)
+] + [
+    # Three well-documented refinements of the live rule, added as a set
+    # before any of them was tested (kept few on purpose: every extra
+    # variant raises the odds of a lucky winner).
+    rot.RotationParams(max_positions=8, exit_rs=0.5, max_new_per_day=MAX_NEW_PER_DAY, momentum="12-1"),
+    rot.RotationParams(max_positions=8, exit_rs=0.5, max_new_per_day=8, rebalance="monthly"),
+    rot.RotationParams(max_positions=8, exit_rs=0.5, max_new_per_day=MAX_NEW_PER_DAY, momentum="6m_vol"),
 ]
 ROTATION_RANDOM_RUNS = 20
 
@@ -602,7 +609,7 @@ def to_markdown(results: dict) -> str:
         "",
         f"{meta['symbols_ok']} symbols with data ({meta['symbols_failed']} failed), {meta['years']} years of daily bars. "
         f"Control group: {meta['largecap_symbols']} stocks that were already large caps in 2015. "
-        f"Primary cost {COST_BPS_PRIMARY:g} bps per side (Swedish retail: courtage + FX + slippage). "
+        f"Primary cost {COST_BPS_PRIMARY:g} bps per side (USD account: courtage + slippage; 40 bps ≈ trading from a SEK account). "
         f"Validation from {splits['validation_start']}, out-of-sample (OOS) from {splits['oos_start']}. "
         f"Setups invalidated at the next open (skipped): {meta['gap_skipped']}.",
         "",
@@ -672,7 +679,7 @@ def to_markdown(results: dict) -> str:
             lines.append(f"| {label} | {full['cagr_pct']:+.1f}% | {full['max_drawdown_pct']:.0f}% | {_fmt(full['sharpe'], '.2f')} | "
                          f"{_fmt(tv.get('sharpe'), '.2f')} | {_fmt(oos.get('cagr_pct'), '+.1f')}% | {_fmt(oos.get('sharpe'), '.2f')} |")
         lines += ["", "| rule set | trades/yr | exposure | win% | avg trade | avg days | CAGR | max DD | Sharpe | train+val Sharpe | "
-                  "OOS CAGR | OOS Sharpe | vs random | CAGR @15 / @70 bps | without best stock |", "|---|" + "---|" * 14]
+                  "OOS CAGR | OOS Sharpe | vs random | CAGR @" + " / @".join(f"{b:g}" for b in COST_BPS_GRID if b != COST_BPS_PRIMARY) + " bps | without best stock |", "|---|" + "---|" * 14]
         for c in r["configs"]:
             f, tv, o = c["full"], c["train_val"], c["oos"]
             cs = c["cost_sensitivity"]
@@ -681,7 +688,7 @@ def to_markdown(results: dict) -> str:
                 f"{_fmt(f.get('win_rate') and f['win_rate'] * 100, '.0f')} | {_fmt(f.get('avg_trade_pct'), '+.1f')}% | {_fmt(f.get('avg_days'), '.0f')} | "
                 f"{f['cagr_pct']:+.1f}% | {f['max_drawdown_pct']:.0f}% | {_fmt(f['sharpe'], '.2f')} | {_fmt(tv.get('sharpe'), '.2f')} | "
                 f"{_fmt(o.get('cagr_pct'), '+.1f')}% | {_fmt(o.get('sharpe'), '.2f')} | {_fmt(c.get('rank_percentile'), '.0%')} | "
-                f"{_fmt(cs.get('15', {}).get('cagr_pct'), '+.1f')}% / {_fmt(cs.get('70', {}).get('cagr_pct'), '+.1f')}% | "
+                + " / ".join(f"{_fmt(v.get('cagr_pct'), '+.1f')}%" for v in cs.values()) + " | "
                 + (f"{c['without_top']['symbol']}: {c['without_top']['cagr_pct']:+.1f}%, Sharpe {_fmt(c['without_top']['sharpe'], '.2f')} |"
                    if c.get("without_top") else "— |")
             )
@@ -697,7 +704,7 @@ def to_markdown(results: dict) -> str:
             failed = ", ".join(k for k, ok in g["checks"].items() if not ok) or "—"
             lines.append(f"| {g['name']} | {'✅' if g['passes'] else '❌'} | {_fmt(g['train_val_sharpe'], '.2f')} | {failed} |")
         years = sorted(lc["spy_by_year"])
-        lines += ["", "Calendar-year returns (2015 large caps, 40 bps per side):", "",
+        lines += ["", f"Calendar-year returns (2015 large caps, {COST_BPS_PRIMARY:g} bps per side):", "",
                   "| | " + " | ".join(years) + " |", "|---|" + "---|" * len(years),
                   "| SPY | " + " | ".join(_fmt(lc["spy_by_year"].get(y), '+.0f') + "%" for y in years) + " |",
                   "| equal-weight group | " + " | ".join(_fmt(lc["equal_weight_by_year"].get(y), '+.0f') + "%" for y in years) + " |"]

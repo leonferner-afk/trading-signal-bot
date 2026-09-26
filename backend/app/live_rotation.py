@@ -14,6 +14,7 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from app.data.stock_client import DataUnavailable, StockClient
@@ -22,7 +23,7 @@ from app.notify import github_issue, telegram_client
 from app.notify.notifier import notify_rotation_buy, notify_rotation_sell
 from app.paper_trading.simulator import ROTATION_EXIT, SKIPPED_GAP, current_mark, run_paper_trading_update
 from app.risk.position_sizing import PositionSize, whole_shares
-from app.rotation import RS_LOOKBACK, RotationParams, decide
+from app.rotation import RS_LOOKBACK, RotationParams, decide, momentum_score
 from app.runtime_settings import get_effective_settings
 from app.scanner.scanner import ANCHOR_SYMBOL, _drop_unclosed_bar
 
@@ -46,10 +47,13 @@ def _above_200(close: pd.Series) -> bool:
     return bool(len(close) >= 200 and close.iloc[-1] > close.iloc[-200:].mean())
 
 
-def market_features(client: StockClient, universe: list[str], spy: pd.DataFrame) -> Features:
+def market_features(client: StockClient, universe: list[str], spy: pd.DataFrame, momentum: str = "6m") -> Features:
+    """Per-stock features for the latest session. `rs` is the percentile of
+    `momentum_score(kind=momentum)` across the universe — the same function
+    the research panel ranks by. `ret_6m` is kept for display."""
     spy = _drop_unclosed_bar(spy, 0)
     session_close = spy["close_time"].iloc[-1]
-    ret_6m, above, last_close, skipped = {}, {}, {}, {}
+    ret_6m, score, above, last_close, skipped = {}, {}, {}, {}, {}
     for symbol in universe:
         try:
             df = _drop_unclosed_bar(client.get_klines(symbol, "1d", limit=400), 0)
@@ -64,7 +68,10 @@ def market_features(client: StockClient, universe: list[str], spy: pd.DataFrame)
         above[symbol] = _above_200(close)
         if len(close) > RS_LOOKBACK:
             ret_6m[symbol] = float(close.iloc[-1] / close.iloc[-1 - RS_LOOKBACK] - 1)
-    rs = pd.Series(ret_6m, dtype=float).rank(pct=True).to_dict() if ret_6m else {}
+        value = momentum_score(close.reset_index(drop=True).to_frame(), momentum).iloc[-1, 0]
+        if pd.notna(value) and np.isfinite(value):
+            score[symbol] = float(value)
+    rs = pd.Series(score, dtype=float).rank(pct=True).to_dict() if score else {}
     return Features(session_close, _above_200(spy["close"].astype(float)), rs, above, ret_6m, last_close, skipped)
 
 
@@ -142,10 +149,22 @@ class RotationDay:
     next_up: list[str]
     features: Features | None
     too_expensive: list[str] = field(default_factory=list)
+    note: str | None = None
+
+
+def is_rebalance_session(params: RotationParams, session: str | None, last_session: str | None) -> bool:
+    """Monthly rule sets decide on the first session of each month. Live,
+    that's the first *processed* session of a new month — so a failed run on
+    the month's first day moves the rebalance to the next run instead of
+    skipping a whole month."""
+    if params.rebalance != "monthly":
+        return True
+    return last_session is None or session is None or session[:7] != last_session[:7]
 
 
 def run_rotation_day(client: StockClient, universe: list[str], spy: pd.DataFrame, params: RotationParams,
-                     evidence: dict | None, market_wide_risk: str, act: bool) -> RotationDay:
+                     evidence: dict | None, market_wide_risk: str, act: bool,
+                     session: str | None = None, last_session: str | None = None) -> RotationDay:
     """`act=False` (no new session / stale data): positions are still
     checked, but no new decisions are made."""
     closed = run_paper_trading_update(client=client)["updated"]
@@ -153,7 +172,10 @@ def run_rotation_day(client: StockClient, universe: list[str], spy: pd.DataFrame
         return RotationDay([], [], closed, [], None)
 
     live = get_effective_settings()
-    features = market_features(client, universe, spy)
+    features = market_features(client, universe, spy, params.momentum)
+    if not is_rebalance_session(params, session, last_session):
+        return RotationDay([], [], closed, [], features, note="Månadsvis ombalansering: nästa beslut fattas vid första "
+                                                              "handelsdagen i nästa månad.")
     timestamp = features.session_close.isoformat()
     open_records = [r for r in journal.get_open_signals() if r.strategy == journal.ROTATION]
     holding = [r for r in open_records if r.exit_signal_at is None]
@@ -216,6 +238,8 @@ def build_rotation_report(today: str, session: str | None, new_session: bool, pa
     ]
     if not new_session:
         lines.append("Ingen ny handelsdag sedan förra körningen (helgdag eller omkörning) — inga nya beslut.")
+    elif day.note:
+        lines.append(day.note)
     elif not day.buys:
         lines.append("Inga nya köp idag." + (" Alla platser är fyllda." if len(open_positions) >= params.max_positions else ""))
     for symbol, size in day.buys:
