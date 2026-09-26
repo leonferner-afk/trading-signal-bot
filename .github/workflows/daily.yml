@@ -15,6 +15,7 @@ on:
 permissions:
   contents: write
   issues: write
+  actions: write
 
 concurrency:
   group: bot-state
@@ -89,3 +90,14 @@ jobs:
           body="Den dagliga körningen avbröts innan någon rapport skrevs. Öppna positioner bevakas igen vid nästa körning. Logg: $RUN_URL"
           gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body" --assignee "$GITHUB_REPOSITORY_OWNER" \
             || gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+      - name: Keep the schedules alive
+        # GitHub disables scheduled workflows in public repositories after 60
+        # days without repository activity. Re-enabling them every run keeps
+        # the bot running indefinitely (a no-op while they're enabled).
+        if: always() && !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for wf in daily.yml research.yml; do
+            gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/enable" || echo "could not re-enable $wf"
+          done
