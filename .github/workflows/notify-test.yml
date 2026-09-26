@@ -1,0 +1,21 @@
+name: Test notification
+
+# Run manually (Actions → Test notification → Run workflow) to check that
+# the bot's notifications reach your phone. Creates an issue the same way
+# the daily run does: by the GitHub Actions bot, assigned to you.
+on:
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="🔔 Test: så här ser en notis från tradingboten ut"
+          body="Om du fick en push-notis om detta fungerar notiserna. Stäng gärna den här issuen. Riktiga signaler kommer som 🟢 KÖP NU / 🔴 SÄLJ NU."
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body" --assignee "$GITHUB_REPOSITORY_OWNER"
