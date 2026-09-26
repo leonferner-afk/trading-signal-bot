@@ -140,7 +140,15 @@ förhandsbestämda krav, i jämförelse med **slumpvisa köp i samma aktier med 
 - **Risk:** nedgångarna blev mycket större än index, och den senaste perioden var negativ.
 - **Beroende av några få aktier:** utan de 3 bästa aktierna föll avkastningen till +6–12 %/år.
 
-Ingen variant klarade kraven, så boten skickar inga raketsignaler.
+**Rapportraketer (PEAD)** testades också: bolaget slår analytikernas vinstförväntningar och aktien stiger under de två dagarna efter rapporten. Köpet sker vid nästa öppning, med släpande stopp på 25 % och max 60 dagars innehav. Den bästa varianten var "slår förväntningarna och stiger ≥ 10 %":
+
+- **Portfölj:** +24,3 %/år (Sharpe 1,01) mot SPY:s +15,7 % (0,90), med största nedgång −43 %.
+- **Sista perioden:** +23,4 %/år.
+- **Utan de 3 bästa aktierna:** +23,6 %/år.
+- **Bland storbolagen från 2015:** fördel mot slumpen.
+- **Mot slumpköp i samma aktier:** fördelen på +1,7 % per affär är **inte statistiskt säkerställd** (t = 0,9 i träning och validering, 1,6 över hela perioden, kravet är 2). Den är dessutom den bästa av 8 testade varianter, vilket överskattar den.
+
+Ingen variant klarade alla krav, så boten skickar inga raketsignaler för riktiga pengar.
 
 ## Begränsningar — läs detta
 
