@@ -36,6 +36,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from app import rotation as rot
 from app.backtest.engine import MAX_HOLDING_BARS_DEFAULT, resolve_exit
 from app.config import settings
 from app.data.news_client import NewsResult
@@ -90,6 +91,13 @@ PORTFOLIO_CONFIGS = [
     ("signals, trend, RS top 20%", "combined", (0, True, True, 0.8, 0), "rs"),
     ("signals, trend, RS top 20%, near 52w high", "combined", (0, True, True, 0.8, 0.9), "rs"),
 ]
+
+
+ROTATION_GRID = [
+    rot.RotationParams(max_positions=n, exit_rs=x, regime_exit=r, stop_pct=sp, max_new_per_day=MAX_NEW_PER_DAY)
+    for n in (5, 8) for x in (0.5, 0.7) for r in (False, True) for sp in (0.0, 0.2)
+]
+ROTATION_RANDOM_RUNS = 20
 
 
 def _session_dates(df: pd.DataFrame) -> np.ndarray:
@@ -458,6 +466,68 @@ def portfolio_results(rows: pd.DataFrame, spy_closes: pd.Series, prices: PriceBo
     return out
 
 
+def segment_stats(sim: dict, start: str | None = None, end: str | None = None) -> dict:
+    """Curve and trade statistics of one simulation restricted to [start, end)."""
+    d = np.array(sim["dates"])
+    m = np.ones(len(d), bool)
+    if start:
+        m &= d >= start
+    if end:
+        m &= d < end
+    if m.sum() < 20:
+        return {"trades": 0}
+    curve = sim["curve"][m] / sim["curve"][m][0]
+    stats = _curve_stats(curve, int(m.sum()), None, None, None)
+    trades = [t for t in sim["trades"] if (not start or t["entry"] >= start) and (not end or t["entry"] < end)]
+    rets = np.array([t["ret_pct"] for t in trades])
+    stats.update({
+        "trades": len(trades),
+        "trades_per_year": round(len(trades) / stats["years"], 1) if stats["years"] else None,
+        "win_rate": round(float((rets > 0).mean()), 3) if len(rets) else None,
+        "avg_trade_pct": round(float(rets.mean()), 2) if len(rets) else None,
+        "avg_days": round(float(np.mean([t["days"] for t in trades])), 1) if trades else None,
+        "exposure_pct": round(float(sim["exposure"][m].mean()) * 100, 0),
+    })
+    return stats
+
+
+def rotation_results(panel: rot.Panel, splits: SplitDates, spy_closes: pd.Series,
+                     random_runs: int = ROTATION_RANDOM_RUNS) -> dict:
+    if len(panel.dates) < rot.RS_LOOKBACK + 200 + 60 or not panel.symbols:
+        return None
+    configs = []
+    first = None
+    for params in ROTATION_GRID:
+        sim = rot.simulate(panel, params, COST_BPS_PRIMARY)
+        first = first or sim["dates"][0]
+        entry = {
+            "name": params.name, "params": params.__dict__,
+            "full": segment_stats(sim),
+            "train_val": segment_stats(sim, end=splits.oos_start),
+            "oos": segment_stats(sim, start=splits.oos_start),
+            "cost_sensitivity": {f"{b:g}": segment_stats(rot.simulate(panel, params, b)) for b in COST_BPS_GRID if b != COST_BPS_PRIMARY},
+        }
+        if random_runs:
+            sims = [rot.simulate(panel, params, COST_BPS_PRIMARY, rng=np.random.default_rng(500 + k)) for k in range(random_runs)]
+            rand_full = np.array([segment_stats(x)["cagr_pct"] for x in sims])
+            rand_tv = np.array([segment_stats(x, end=splits.oos_start).get("sharpe") or 0.0 for x in sims])
+            entry["random_median_cagr"] = round(float(np.median(rand_full)), 2)
+            entry["rank_percentile"] = round(float((rand_full < entry["full"]["cagr_pct"]).mean()), 2)
+            entry["rank_percentile_train_val_sharpe"] = round(float((rand_tv < (entry["train_val"].get("sharpe") or 0.0)).mean()), 2)
+        configs.append(entry)
+    start_i = panel.dates.index(first)
+    ew = {"dates": panel.dates[start_i:], "curve": rot.equal_weight_benchmark(panel, start_i),
+          "exposure": np.ones(len(panel.dates) - start_i), "trades": []}
+    return {
+        "start": first,
+        "spy": benchmark(spy_closes, first), "spy_train_val": benchmark(spy_closes, first, splits.oos_start),
+        "spy_oos": benchmark(spy_closes, splits.oos_start),
+        "equal_weight": segment_stats(ew), "equal_weight_train_val": segment_stats(ew, end=splits.oos_start),
+        "equal_weight_oos": segment_stats(ew, start=splits.oos_start),
+        "configs": configs,
+    }
+
+
 def _fmt(value, spec: str, missing: str = "—") -> str:
     return missing if value is None or (isinstance(value, float) and math.isnan(value)) else format(value, spec)
 
@@ -523,6 +593,33 @@ def to_markdown(results: dict) -> str:
                 f"{_fmt(ex.get('avg_excess_r'), '+.3f')} ({_fmt(ex.get('t_month'), '.2f')}) | {o['big_winners_pct'] * 100:.1f}% | "
                 f"{oos.get('n', 0)} | {_fmt(oos.get('avg_r'), '+.3f')} |"
             )
+    for universe in ("all", "largecap_2015"):
+        r = results["universes"][universe].get("rotation")
+        if not r:
+            continue
+        lines += [
+            "",
+            f"## Momentum rotation — universe: {universe} (from {r['start']}, {COST_BPS_PRIMARY:g} bps per side)",
+            "",
+            "| benchmark | CAGR | max DD | Sharpe | train+val Sharpe | OOS CAGR | OOS Sharpe |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for label, full, tv, oos in (("SPY buy-and-hold", r["spy"], r["spy_train_val"], r["spy_oos"]),
+                                     ("equal-weight universe (no costs)", r["equal_weight"], r["equal_weight_train_val"], r["equal_weight_oos"])):
+            lines.append(f"| {label} | {full['cagr_pct']:+.1f}% | {full['max_drawdown_pct']:.0f}% | {_fmt(full['sharpe'], '.2f')} | "
+                         f"{_fmt(tv.get('sharpe'), '.2f')} | {_fmt(oos.get('cagr_pct'), '+.1f')}% | {_fmt(oos.get('sharpe'), '.2f')} |")
+        lines += ["", "| rule set | trades/yr | exposure | win% | avg trade | avg days | CAGR | max DD | Sharpe | train+val Sharpe | "
+                  "OOS CAGR | OOS Sharpe | vs random | CAGR @15 / @70 bps |", "|---|" + "---|" * 13]
+        for c in r["configs"]:
+            f, tv, o = c["full"], c["train_val"], c["oos"]
+            cs = c["cost_sensitivity"]
+            lines.append(
+                f"| {c['name']} | {_fmt(f.get('trades_per_year'), '.0f')} | {_fmt(f.get('exposure_pct'), '.0f')}% | "
+                f"{_fmt(f.get('win_rate') and f['win_rate'] * 100, '.0f')} | {_fmt(f.get('avg_trade_pct'), '+.1f')}% | {_fmt(f.get('avg_days'), '.0f')} | "
+                f"{f['cagr_pct']:+.1f}% | {f['max_drawdown_pct']:.0f}% | {_fmt(f['sharpe'], '.2f')} | {_fmt(tv.get('sharpe'), '.2f')} | "
+                f"{_fmt(o.get('cagr_pct'), '+.1f')}% | {_fmt(o.get('sharpe'), '.2f')} | {_fmt(c.get('rank_percentile'), '.0%')} | "
+                f"{_fmt(cs.get('15', {}).get('cagr_pct'), '+.1f')}% / {_fmt(cs.get('70', {}).get('cagr_pct'), '+.1f')}% |"
+            )
     lines += ["", "## Mean R by year (all universe, fixed exit)", ""]
     years = sorted({y for row in results["universes"]["all"]["per_trade"] for y in row["avg_r_by_year"]})
     lines += ["| group | policy | " + " | ".join(years) + " |", "|---|---|" + "---|" * len(years)]
@@ -544,10 +641,12 @@ def run_research(symbols: list[str], years: int = 10, out_dir: str | Path = "res
         spy = enrich(client.get_klines(ANCHOR_SYMBOL, "1d", limit=limit))
         market = market_context(spy)
         spy_closes = pd.Series(spy["close"].to_numpy(dtype=float), index=_session_dates(spy))
+        spy_frame = pd.DataFrame({"close": spy["close"].to_numpy(dtype=float)}, index=_session_dates(spy))
 
         all_rows: list[dict] = []
         returns: dict[str, pd.Series] = {}
         closes: dict[str, pd.Series] = {}
+        ohlc: dict[str, pd.DataFrame] = {}
         failed: dict[str, str] = {}
         gap_skipped = 0
         for n, symbol in enumerate(symbols, 1):
@@ -563,6 +662,7 @@ def run_research(symbols: list[str], years: int = 10, out_dir: str | Path = "res
             all_rows.extend(rows)
             returns[symbol] = ret_6m
             closes[symbol] = pd.Series(df["close"].to_numpy(dtype=float), index=_session_dates(df))
+            ohlc[symbol] = pd.DataFrame({c: df[c].to_numpy(dtype=float) for c in ("open", "low", "close")}, index=_session_dates(df))
             gap_skipped += skipped
             if n % 25 == 0:
                 logger.info("research: %d/%d symbols done, %d candidate rows so far", n, len(symbols), len(all_rows))
@@ -577,6 +677,8 @@ def run_research(symbols: list[str], years: int = 10, out_dir: str | Path = "res
     prices = PriceBook(closes)
     results = {"splits": splits.__dict__, "universes": {}}
     for universe, subset, rs_col in (("all", frame, "rs"), ("largecap_2015", frame[frame["largecap"]], "rs_largecap")):
+        members = sorted(returns) if universe == "all" else largecap
+        rotation = rotation_results(rot.build_panel(ohlc, spy_frame, members), splits, spy_closes, random_runs and ROTATION_RANDOM_RUNS)
         primary = with_costs(subset, COST_BPS_PRIMARY)
         portfolio = portfolio_results(subset, spy_closes, prices, splits, rs_col, COST_BPS_PRIMARY, "fixed", random_runs)
         sensitivity = {}
@@ -600,6 +702,7 @@ def run_research(symbols: list[str], years: int = 10, out_dir: str | Path = "res
             "portfolio_wide": portfolio_results(subset, spy_closes, prices, splits, rs_col, COST_BPS_PRIMARY, "wide", 0),
             "cost_sensitivity": sensitivity,
             "per_trade": evaluate_trades(primary, splits, rs_col),
+            "rotation": rotation,
         }
 
     results["meta"] = {
