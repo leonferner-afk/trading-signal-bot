@@ -93,3 +93,37 @@ def test_rotation_buys_sells_and_closes_at_next_open(world, tmp_path):
     again = daily.run_daily(report_dir=tmp_path)
     assert again.ok and again.rotation_buys == [] and again.rotation_sells == [] and sent == []
     assert {r.symbol for r in journal.get_open_signals()} == {"UP2", "UP3", "UP4"}
+
+
+def test_rotation_evidence_comes_from_the_hindsight_free_group(monkeypatch):
+    from app.live_rotation import rotation_evidence
+    from app.notify.notifier import format_rotation_buy
+    from app.live_rotation import equal_weight_size
+
+    params = RotationParams(max_positions=5)
+    stats = {"trades": 90, "cagr_pct": 20.0, "max_drawdown_pct": -30.0, "sharpe": 0.9, "years": 8.7,
+             "win_rate": 0.45, "avg_trade_pct": 12.0, "avg_days": 110.0}
+    block = lambda cagr: {"rotation": {"configs": [{"name": params.name, "full": {**stats, "cagr_pct": cagr}, "oos": stats}],
+                                       "spy": {"cagr_pct": 14.5, "max_drawdown_pct": -34.0}, "spy_oos": {"cagr_pct": 16.7}}}
+    evidence = {"universes": {"all": block(99.0), "largecap_2015": block(20.0)}, "meta": {"years": 10}}
+    monkeypatch.delenv("ROTATION_UNIVERSE", raising=False)
+    ev = rotation_evidence(evidence, params)
+    assert ev["cagr_pct"] == 20.0 and ev["spy_cagr_pct"] == 14.5
+    assert rotation_evidence(evidence, RotationParams(max_positions=7)) is None  # other rule set -> no borrowed numbers
+
+    size = equal_weight_size(50.0, 10000, params, free=10000)
+    assert size.position_size_usd == 2000.0 and size.units == 40.0
+    msg = format_rotation_buy("ABC", {"rs": 0.95, "ret_6m": 0.42, "last_close": 50.0, "universe": 100}, size, params, ev)
+    assert msg.startswith("🟢 KÖP NU — ABC") and "+20.0%/år" in msg and "SPY samma period: +14.5%/år" in msg
+
+
+def test_gate_warning_when_research_no_longer_supports_the_rule():
+    from app.live_rotation import gate_status
+
+    params = RotationParams(max_positions=5)
+    ok = {"rotation_selection": {"chosen": params.name, "gates": [{"name": params.name, "passes": True, "checks": {}}]}}
+    assert gate_status(ok, params) is None and gate_status(None, params) is None
+    bad = {"rotation_selection": {"chosen": None, "gates": [
+        {"name": params.name, "passes": False, "checks": {"ranking_beats_random": False, "drawdown_close_to_spy": True}}]}}
+    msg = gate_status(bad, params)
+    assert "ranking_beats_random" in msg and "index" in msg

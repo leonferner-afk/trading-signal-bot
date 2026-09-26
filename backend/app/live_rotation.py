@@ -69,9 +69,16 @@ def market_features(client: StockClient, universe: list[str], spy: pd.DataFrame)
 
 
 def rotation_evidence(evidence: dict | None, params: RotationParams) -> dict | None:
-    """Backtest numbers for exactly this rule set (universe 'all')."""
+    """Backtest numbers for exactly this rule set, from the research universe
+    that corresponds to the live one: large caps live <-> the 2015 large-cap
+    group (hindsight-free); the full list <-> 'all'."""
+    import os
+
+    from app.policy import DEFAULT_ROTATION_UNIVERSE
+
+    name = (os.getenv("ROTATION_UNIVERSE") or DEFAULT_ROTATION_UNIVERSE).strip().lower()
     try:
-        r = evidence["universes"]["all"]["rotation"]
+        r = evidence["universes"]["all" if name == "all" else "largecap_2015"]["rotation"]
     except (KeyError, TypeError):
         return None
     if not r:
@@ -81,12 +88,29 @@ def rotation_evidence(evidence: dict | None, params: RotationParams) -> dict | N
             f = c["full"]
             years = (evidence.get("meta") or {}).get("years", "?")
             return {
-                "label": f"backtest {years} år, samma regler, {f['years']:g} år handlade",
+                "label": f"backtest {f['years']:g} år på storbolag valda 2015, samma regler",
                 "cagr_pct": f["cagr_pct"], "max_drawdown_pct": f["max_drawdown_pct"], "sharpe": f["sharpe"],
                 "win_rate": f["win_rate"] or 0.0, "avg_trade_pct": f["avg_trade_pct"] or 0.0, "avg_days": f["avg_days"] or 0.0,
                 "spy_cagr_pct": r["spy"]["cagr_pct"], "spy_max_drawdown_pct": r["spy"]["max_drawdown_pct"],
                 "oos_cagr_pct": c["oos"].get("cagr_pct"), "spy_oos_cagr_pct": r["spy_oos"].get("cagr_pct"),
             }
+    return None
+
+
+def gate_status(evidence: dict | None, params: RotationParams) -> str | None:
+    """A warning when the latest research no longer supports the live rule
+    (checked weekly against the pre-registered gates), else None."""
+    sel = (evidence or {}).get("rotation_selection")
+    if not sel:
+        return None
+    mine = next((g for g in sel.get("gates", []) if g["name"] == params.name), None)
+    if mine is None:
+        return "⚠ Den senaste forskningen har inte testat exakt de här reglerna."
+    if not mine["passes"]:
+        failed = ", ".join(k for k, ok in mine["checks"].items() if not ok)
+        best = sel.get("chosen")
+        return (f"⚠ De här reglerna klarar inte längre forskningens förhandsbestämda krav ({failed}). "
+                + (f"Forskningens val just nu: {best}." if best else "Ingen variant klarar kraven just nu — överväg att bara äga index."))
     return None
 
 
@@ -172,6 +196,7 @@ def build_rotation_report(today: str, session: str | None, new_session: bool, pa
         f"**Portfölj:** ${live.portfolio_size_usd:,.0f} · {len(open_positions)}/{params.max_positions} innehav · "
         f"senaste handelsdag i datan: {session or 'okänd'}",
         "",
+    ] + ([f"> {gate_status(evidence, params)}", ""] if gate_status(evidence, params) else []) + [
         f"## 🟢 KÖP ({len(day.buys)})",
     ]
     if not new_session:

@@ -491,6 +491,54 @@ def segment_stats(sim: dict, start: str | None = None, end: str | None = None) -
     return stats
 
 
+def yearly_returns(dates: list[str], curve: np.ndarray) -> dict[str, float]:
+    """Calendar-year return (%) from a daily equity curve (partial first/last years included)."""
+    s = pd.Series(np.asarray(curve, dtype=float), index=pd.Index(dates).str[:4])
+    out, prev = {}, None
+    for year, values in s.groupby(level=0, sort=True):
+        start = prev if prev is not None else values.iloc[0]
+        out[year] = round((values.iloc[-1] / start - 1) * 100, 1)
+        prev = values.iloc[-1]
+    return out
+
+
+# Pre-registered selection rule for the live rotation (decided before the
+# hindsight-free results were seen). Evaluated on the 2015 large-cap group,
+# train+validation period only; OOS is reported, never used to choose.
+GATE_MIN_RANDOM_PERCENTILE = 0.9
+GATE_MAX_EXTRA_DRAWDOWN_PCT = 10.0
+
+
+def rotation_gates(block: dict) -> list[dict]:
+    spy_tv, spy = block["spy_train_val"], block["spy"]
+    out = []
+    for c in block["configs"]:
+        tv, full, wt = c["train_val"], c["full"], c.get("without_top") or {}
+        checks = {
+            "train_val_sharpe_beats_spy": (tv.get("sharpe") or -9) > (spy_tv.get("sharpe") or 0),
+            "ranking_beats_random": (c.get("rank_percentile") or 0) >= GATE_MIN_RANDOM_PERCENTILE,
+            "without_best_stock_beats_spy": (wt.get("cagr_pct") if wt else -99) >= spy["cagr_pct"],
+            "drawdown_close_to_spy": full["max_drawdown_pct"] >= spy["max_drawdown_pct"] - GATE_MAX_EXTRA_DRAWDOWN_PCT,
+        }
+        out.append({"name": c["name"], "passes": all(checks.values()), "checks": checks,
+                    "train_val_sharpe": tv.get("sharpe"), "trades_per_year": full.get("trades_per_year")})
+    return out
+
+
+def select_rotation(block: dict | None) -> dict:
+    if not block:
+        return {"chosen": None, "gates": []}
+    gates = rotation_gates(block)
+    passing = [g for g in gates if g["passes"]]
+    if not passing:
+        return {"chosen": None, "gates": gates}
+    best = max(g["train_val_sharpe"] for g in passing)
+    # Within 0.03 Sharpe of the best, prefer fewer trades (less cost, less work).
+    near = [g for g in passing if g["train_val_sharpe"] >= best - 0.03]
+    chosen = min(near, key=lambda g: (g["trades_per_year"] or 0, -g["train_val_sharpe"]))
+    return {"chosen": chosen["name"], "gates": gates}
+
+
 def rotation_results(panel: rot.Panel, splits: SplitDates, spy_closes: pd.Series,
                      random_runs: int = ROTATION_RANDOM_RUNS, rebuild=None) -> dict:
     """`rebuild(symbols)` builds the panel for a subset of symbols — used to
@@ -509,6 +557,7 @@ def rotation_results(panel: rot.Panel, splits: SplitDates, spy_closes: pd.Series
             "train_val": segment_stats(sim, end=splits.oos_start),
             "oos": segment_stats(sim, start=splits.oos_start),
             "cost_sensitivity": {f"{b:g}": segment_stats(rot.simulate(panel, params, b)) for b in COST_BPS_GRID if b != COST_BPS_PRIMARY},
+            "by_year": yearly_returns(sim["dates"], sim["curve"]),
         }
         if rebuild is not None and sim["trades"]:
             by_symbol: dict[str, float] = {}
@@ -535,6 +584,9 @@ def rotation_results(panel: rot.Panel, splits: SplitDates, spy_closes: pd.Series
         "spy_oos": benchmark(spy_closes, splits.oos_start),
         "equal_weight": segment_stats(ew), "equal_weight_train_val": segment_stats(ew, end=splits.oos_start),
         "equal_weight_oos": segment_stats(ew, start=splits.oos_start),
+        "spy_by_year": yearly_returns(list(spy_closes.index[spy_closes.index >= first]),
+                                      spy_closes[spy_closes.index >= first].to_numpy(dtype=float)),
+        "equal_weight_by_year": yearly_returns(ew["dates"], ew["curve"]),
         "configs": configs,
     }
 
@@ -633,6 +685,25 @@ def to_markdown(results: dict) -> str:
                 + (f"{c['without_top']['symbol']}: {c['without_top']['cagr_pct']:+.1f}%, Sharpe {_fmt(c['without_top']['sharpe'], '.2f')} |"
                    if c.get("without_top") else "— |")
             )
+    sel = results.get("rotation_selection") or {}
+    lc = results["universes"]["largecap_2015"].get("rotation")
+    if lc:
+        lines += ["", "## Rotation: pre-registered selection (2015 large caps, train+validation only)", "",
+                  f"Gates: train+val Sharpe > SPY's, ranking beats >= {GATE_MIN_RANDOM_PERCENTILE:.0%} of random selections, "
+                  f"CAGR without the single best stock >= SPY's, max drawdown at most {GATE_MAX_EXTRA_DRAWDOWN_PCT:g} points worse than SPY's.",
+                  "", f"**Chosen: {sel.get('chosen') or 'none — no rule set passed every gate'}**", "",
+                  "| rule set | passes | train+val Sharpe | failed gates |", "|---|---|---|---|"]
+        for g in sel.get("gates", []):
+            failed = ", ".join(k for k, ok in g["checks"].items() if not ok) or "—"
+            lines.append(f"| {g['name']} | {'✅' if g['passes'] else '❌'} | {_fmt(g['train_val_sharpe'], '.2f')} | {failed} |")
+        years = sorted(lc["spy_by_year"])
+        lines += ["", "Calendar-year returns (2015 large caps, 40 bps per side):", "",
+                  "| | " + " | ".join(years) + " |", "|---|" + "---|" * len(years),
+                  "| SPY | " + " | ".join(_fmt(lc["spy_by_year"].get(y), '+.0f') + "%" for y in years) + " |",
+                  "| equal-weight group | " + " | ".join(_fmt(lc["equal_weight_by_year"].get(y), '+.0f') + "%" for y in years) + " |"]
+        for c in lc["configs"]:
+            if c["name"] == sel.get("chosen") or not sel.get("chosen"):
+                lines.append(f"| {c['name']} | " + " | ".join(_fmt(c["by_year"].get(y), '+.0f') + "%" for y in years) + " |")
     lines += ["", "## Mean R by year (all universe, fixed exit)", ""]
     years = sorted({y for row in results["universes"]["all"]["per_trade"] for y in row["avg_r_by_year"]})
     lines += ["| group | policy | " + " | ".join(years) + " |", "|---|---|" + "---|" * len(years)]
@@ -719,6 +790,7 @@ def run_research(symbols: list[str], years: int = 10, out_dir: str | Path = "res
             "rotation": rotation,
         }
 
+    results["rotation_selection"] = select_rotation(results["universes"]["largecap_2015"].get("rotation"))
     results["meta"] = {
         "symbols_ok": len(returns), "symbols_failed": len(failed), "failed": failed, "years": years,
         "largecap_symbols": len(largecap), "gap_skipped": gap_skipped,

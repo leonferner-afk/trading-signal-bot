@@ -144,3 +144,29 @@ def test_random_rank_uses_the_same_candidates():
     # The best-score pick is the only winner; random order misses it sometimes.
     assert ranked["cagr_pct"] >= max(r["cagr_pct"] for r in randomized)
     assert min(r["cagr_pct"] for r in randomized) < ranked["cagr_pct"]
+
+
+def test_yearly_returns_chain_across_years():
+    from app.research import yearly_returns
+
+    out = yearly_returns(["2024-06-01", "2024-12-31", "2025-06-01", "2025-12-31"], np.array([1.0, 1.1, 1.21, 0.99]))
+    assert out == {"2024": 10.0, "2025": -10.0}
+
+
+def test_rotation_selection_gates():
+    from app.research import select_rotation
+
+    spy = {"cagr_pct": 14.0, "max_drawdown_pct": -34.0, "sharpe": 0.8}
+    def cfg(name, tv_sharpe, pct, without, dd, tpy):
+        return {"name": name, "train_val": {"sharpe": tv_sharpe}, "rank_percentile": pct,
+                "without_top": {"cagr_pct": without}, "full": {"max_drawdown_pct": dd, "trades_per_year": tpy}}
+    block = {"spy": spy, "spy_train_val": {"sharpe": 0.76}, "configs": [
+        cfg("great but fragile", 1.2, 1.0, 9.0, -30, 10),       # collapses without its best stock
+        cfg("deep drawdown", 1.1, 1.0, 20.0, -60, 10),
+        cfg("good", 0.90, 0.95, 18.0, -35, 16),
+        cfg("good, fewer trades", 0.88, 1.0, 17.0, -33, 10),   # within 0.03 -> preferred
+        cfg("random-like", 0.95, 0.5, 18.0, -30, 10),
+    ]}
+    sel = select_rotation(block)
+    assert sel["chosen"] == "good, fewer trades"
+    assert select_rotation({**block, "configs": block["configs"][:2]})["chosen"] is None
