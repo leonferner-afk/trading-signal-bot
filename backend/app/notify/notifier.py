@@ -182,7 +182,7 @@ notify = notify_entry
 # Momentum rotation ("trendledare")
 # ---------------------------------------------------------------------------
 
-def format_rotation_buy(symbol: str, info: dict, size, params, evidence: dict | None) -> str:
+def format_rotation_buy(symbol: str, info: dict, size, params, evidence: dict | None, warning: str | None = None) -> str:
     shares = int(size.units) if size.units >= 1 else round(size.units, 3)
     lines = [
         f"🟢 KÖP NU — {symbol}",
@@ -203,7 +203,9 @@ def format_rotation_buy(symbol: str, info: dict, size, params, evidence: dict | 
     if evidence:
         lines += ["", f"Historik ({evidence['label']}): {evidence['cagr_pct']:+.1f}%/år, största nedgång {evidence['max_drawdown_pct']:.0f}%, "
                       f"{evidence['win_rate'] * 100:.0f}% vinnande affärer, snitt {evidence['avg_trade_pct']:+.1f}% på {evidence['avg_days']:.0f} dagar. "
-                      f"SPY samma period: {evidence['spy_cagr_pct']:+.1f}%/år."]
+                      f"SPY samma period: {evidence['spy_cagr_pct']:+.1f}%/år, största nedgång {evidence['spy_max_drawdown_pct']:.0f}%."]
+    if warning:
+        lines += ["", warning]
     lines += ["", "Boten handlar aldrig åt dig. Historik är ingen garanti — varje affär kan förlora."]
     return "\n".join(lines)
 
@@ -217,8 +219,8 @@ def format_rotation_sell(record: SignalRecord, reason: str, mark: dict | None) -
     return "\n".join(lines)
 
 
-def notify_rotation_buy(symbol: str, info: dict, size, params, evidence: dict | None) -> None:
-    _deliver(format_rotation_buy(symbol, info, size, params, evidence))
+def notify_rotation_buy(symbol: str, info: dict, size, params, evidence: dict | None, warning: str | None = None) -> None:
+    _deliver(format_rotation_buy(symbol, info, size, params, evidence, warning))
 
 
 def notify_rotation_sell(record: SignalRecord, reason: str, mark: dict | None) -> None:

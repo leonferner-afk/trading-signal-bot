@@ -97,6 +97,14 @@ def rotation_evidence(evidence: dict | None, params: RotationParams) -> dict | N
     return None
 
 
+GATE_LABELS = {
+    "train_val_sharpe_beats_spy": "slår inte SPY riskjusterat",
+    "ranking_beats_random": "rangordningen slår inte slumpvis val",
+    "without_best_stock_beats_spy": "vilar på en enda aktie",
+    "drawdown_close_to_spy": "för stora nedgångar",
+}
+
+
 def gate_status(evidence: dict | None, params: RotationParams) -> str | None:
     """A warning when the latest research no longer supports the live rule
     (checked weekly against the pre-registered gates), else None."""
@@ -107,10 +115,12 @@ def gate_status(evidence: dict | None, params: RotationParams) -> str | None:
     if mine is None:
         return "⚠ Den senaste forskningen har inte testat exakt de här reglerna."
     if not mine["passes"]:
-        failed = ", ".join(k for k, ok in mine["checks"].items() if not ok)
+        failed = ", ".join(GATE_LABELS.get(k, k) for k, ok in mine["checks"].items() if not ok)
         best = sel.get("chosen")
-        return (f"⚠ De här reglerna klarar inte längre forskningens förhandsbestämda krav ({failed}). "
-                + (f"Forskningens val just nu: {best}." if best else "Ingen variant klarar kraven just nu — överväg att bara äga index."))
+        return (f"⚠ Reglerna klarar inte forskningens förhandsbestämda krav ({failed}). "
+                + (f"Forskningens val just nu: {best}." if best else
+                   "Ingen testad variant har slagit att bara äga en S&P 500-fond riskjusterat — se signalerna som ett aktivt "
+                   "alternativ med ungefär indexlik historik, inte som en bevisad fördel."))
     return None
 
 
@@ -172,7 +182,7 @@ def run_rotation_day(client: StockClient, universe: list[str], spy: pd.DataFrame
                 "universe": len(features.rs)}
         journal.save_rotation_buy(symbol, timestamp, price, price * (1 - params.stop_pct) if params.stop_pct else 0.0,
                                   info, market_wide_risk, ev)
-        notify_rotation_buy(symbol, info, size, params, ev)
+        notify_rotation_buy(symbol, info, size, params, ev, gate_status(evidence, params))
         buy_rows.append((symbol, size))
 
     # The next strongest eligible names (for the report only).

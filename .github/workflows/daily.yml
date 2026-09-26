@@ -6,6 +6,11 @@ on:
     # daily bar is final; results are waiting when Sweden wakes up.
     - cron: "37 5 * * 2-6"
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: real data and the real journal (copied), but no notifications and nothing saved"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -31,15 +36,20 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - run: pip install -r backend/requirements.txt
+      - name: Copy the journal for a dry run
+        if: inputs.dry_run
+        run: cp state/tradingbot.db /tmp/dry.db 2>/dev/null || true
       - name: Scan, update positions, report, notify
         working-directory: backend
         env:
           PYTHONPATH: .
-          DB_PATH: ${{ github.workspace }}/state/tradingbot.db
+          DB_PATH: ${{ inputs.dry_run && '/tmp/dry.db' || format('{0}/state/tradingbot.db', github.workspace) }}
           EVIDENCE_PATH: ${{ github.workspace }}/state/evidence.json
-          GITHUB_TOKEN: ${{ github.token }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # A dry run gets no delivery credentials, so nothing can be sent.
+          GITHUB_TOKEN: ${{ !inputs.dry_run && github.token || '' }}
+          TELEGRAM_BOT_TOKEN: ${{ !inputs.dry_run && secrets.TELEGRAM_BOT_TOKEN || '' }}
+          TELEGRAM_CHAT_ID: ${{ !inputs.dry_run && secrets.TELEGRAM_CHAT_ID || '' }}
+          REPORT_DIR: ${{ inputs.dry_run && '/tmp/reports' || format('{0}/state/reports', github.workspace) }}
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           PORTFOLIO_SIZE_USD: ${{ vars.PORTFOLIO_SIZE_USD }}
           RISK_PER_TRADE_PCT: ${{ vars.RISK_PER_TRADE_PCT }}
@@ -52,9 +62,9 @@ jobs:
           ROTATION_EXIT_RS: ${{ vars.ROTATION_EXIT_RS }}
           ROTATION_REGIME_EXIT: ${{ vars.ROTATION_REGIME_EXIT }}
           ROTATION_STOP_PCT: ${{ vars.ROTATION_STOP_PCT }}
-        run: python -m app.cli daily --report-dir "$GITHUB_WORKSPACE/state/reports"
+        run: python -m app.cli daily --report-dir "$REPORT_DIR"
       - name: Save journal and reports
-        if: always()
+        if: always() && !inputs.dry_run
         working-directory: state
         run: |
           git config user.name "tradingbot"
@@ -65,7 +75,7 @@ jobs:
       - name: Alert if the run crashed
         # The bot reports data problems itself; this catches a crash before
         # any report was written, so a silent day never looks like "no trades".
-        if: failure()
+        if: failure() && !inputs.dry_run
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

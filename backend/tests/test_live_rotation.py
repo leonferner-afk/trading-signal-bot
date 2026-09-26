@@ -126,4 +126,4 @@ def test_gate_warning_when_research_no_longer_supports_the_rule():
     bad = {"rotation_selection": {"chosen": None, "gates": [
         {"name": params.name, "passes": False, "checks": {"ranking_beats_random": False, "drawdown_close_to_spy": True}}]}}
     msg = gate_status(bad, params)
-    assert "ranking_beats_random" in msg and "index" in msg
+    assert "slumpvis" in msg and "S&P 500-fond" in msg
