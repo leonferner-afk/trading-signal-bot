@@ -36,6 +36,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from app import rockets as rk
 from app import rotation as rot
 from app.backtest.engine import MAX_HOLDING_BARS_DEFAULT, resolve_exit
 from app.config import settings
@@ -347,7 +348,8 @@ class PriceBook:
 
 
 def simulate_portfolio(trades: pd.DataFrame, rank_col: str, calendar: list[str], prices: PriceBook, cost_bps: float,
-                       start: str | None = None, end: str | None = None, rng: np.random.Generator | None = None) -> dict:
+                       start: str | None = None, end: str | None = None, rng: np.random.Generator | None = None,
+                       weight: float | None = None, max_open: int = MAX_OPEN, max_new: int = MAX_NEW_PER_DAY) -> dict:
     """Day-by-day portfolio marked to market at every close.
 
     Each candidate row is a trade that would be entered at the open of
@@ -386,12 +388,13 @@ def simulate_portfolio(trades: pd.DataFrame, rank_col: str, calendar: list[str],
         new_today = 0
         lo, hi = day_slices.get(day, (0, 0))
         for k in range(lo, hi):
-            if len(positions) >= MAX_OPEN or new_today >= MAX_NEW_PER_DAY:
+            if len(positions) >= max_open or new_today >= max_new:
                 break
             symbol = t_sym[k]
             if symbol in positions:
                 continue
-            notional = min(equity * RISK_PCT / t_stop[k], equity * MAX_POSITION_PCT / 100, cash)
+            notional = (min(equity * weight, cash) if weight is not None
+                        else min(equity * RISK_PCT / t_stop[k], equity * MAX_POSITION_PCT / 100, cash))
             if notional < equity * 0.02:
                 continue
             cash -= notional
@@ -598,6 +601,98 @@ def rotation_results(panel: rot.Panel, splits: SplitDates, spy_closes: pd.Series
     }
 
 
+def rocket_results(raw: dict[str, pd.DataFrame], largecap: set[str], spy_closes: pd.Series, prices: PriceBook,
+                   splits: SplitDates) -> dict:
+    """Every rocket variant: per-trade vs random entries in the same stocks,
+    an equal-weight portfolio (10 slots of 10%), the 2015 large-cap control,
+    a without-top-3-stocks rerun and the pre-registered gates."""
+    dates = {s: _session_dates(df) for s, df in raw.items()}
+    frames = {s: df for s, df in raw.items() if {"high", "volume"} <= set(df.columns)}
+    first = min(d[21] for d in dates.values() if len(d) > 21)
+    calendar = [d for d in spy_closes.index if d >= first]
+    spy = {"full": benchmark(spy_closes, first), "train_val": benchmark(spy_closes, first, splits.oos_start),
+           "oos": benchmark(spy_closes, splits.oos_start)}
+    baselines: dict[float, pd.DataFrame] = {}
+    variants = []
+
+    def portfolio(rows: pd.DataFrame, start=None, end=None, rng=None) -> dict:
+        return simulate_portfolio(rows, "volume_ratio", calendar, prices, COST_BPS_PRIMARY, start, end, rng,
+                                  weight=rk.WEIGHT, max_open=rk.MAX_OPEN, max_new=rk.MAX_NEW_PER_DAY)
+
+    for params in rk.GRID:
+        if params.trail not in baselines:
+            base = [r for s, df in frames.items() for r in rk.symbol_rows(s, df, dates[s], params, baseline=True)]
+            baselines[params.trail] = rk.with_costs(pd.DataFrame(base), COST_BPS_PRIMARY) if base else pd.DataFrame()
+        base = baselines[params.trail]
+        rows = [r for s, df in frames.items() for r in rk.symbol_rows(s, df, dates[s], params, baseline=False)]
+        if not rows or base.empty:
+            variants.append({"name": params.name, "trades": {"n": 0}})
+            continue
+        t = rk.with_costs(pd.DataFrame(rows), COST_BPS_PRIMARY)
+        tv, oos = t[t["date"] < splits.oos_start], t[t["date"] >= splits.oos_start]
+        base_tv = base[base["date"] < splits.oos_start]
+        lc, base_lc = t[t["symbol"].isin(largecap)], base[base["symbol"].isin(largecap)]
+        top3 = t.groupby("symbol")["ret_pct"].sum().nlargest(3).index.tolist()
+        entry = {
+            "name": params.name, "params": params.__dict__,
+            "trades": rk.trade_summary(t), "trades_train_val": rk.trade_summary(tv), "trades_oos": rk.trade_summary(oos),
+            "random_entries": rk.trade_summary(base),
+            "excess_all": rk.monthly_excess(t, base), "excess_train_val": rk.monthly_excess(tv, base_tv),
+            "excess_largecap": rk.monthly_excess(lc, base_lc), "largecap_trades": rk.trade_summary(lc),
+            "portfolio": portfolio(t), "portfolio_train_val": portfolio(t, end=splits.oos_start),
+            "portfolio_oos": portfolio(t, start=splits.oos_start),
+            "random_portfolio": portfolio(base.assign(volume_ratio=np.random.default_rng(11).random(len(base)))),
+            "without_top3": {"symbols": top3, **{k: v for k, v in portfolio(t[~t["symbol"].isin(top3)]).items()
+                                                 if k in ("cagr_pct", "sharpe", "max_drawdown_pct")}},
+            "by_year": t.groupby(t["date"].str[:4])["ret_pct"].mean().round(2).to_dict(),
+        }
+        entry["gates"] = rk.rocket_gates(entry, spy["train_val"], spy["full"])
+        variants.append(entry)
+    passing = [v for v in variants if v.get("gates", {}).get("passes")]
+    chosen = max(passing, key=lambda v: v["portfolio_train_val"].get("sharpe") or -9)["name"] if passing else None
+    return {"start": first, "spy": spy, "variants": variants, "chosen": chosen}
+
+
+def _rocket_markdown(r: dict) -> list[str]:
+    spy = r["spy"]
+    lines = ["", f"## Rockets (from {r['start']}, {COST_BPS_PRIMARY:g} bps per side, 10 slots x 10%, max 3 new per day)", "",
+             f"Rocket day: close >= +jump vs previous close, volume >= {rk.VOLUME_MULT:g}x the 20-day average, close in the top "
+             f"quarter of the day's range, price >= ${rk.MIN_PRICE:g}, 20-day dollar volume >= ${rk.MIN_DOLLAR_VOLUME / 1e6:g}M. "
+             f"Buy next open; sell next open after a close more than `trail` below the highest close, or after {rk.MAX_HOLD} sessions. "
+             "'Random' = same stocks, same liquidity filter, same exit, random dates.",
+             "", f"SPY: {spy['full']['cagr_pct']:+.1f}%/yr, max DD {spy['full']['max_drawdown_pct']:.0f}%, Sharpe {_fmt(spy['full']['sharpe'], '.2f')} "
+             f"· train+val {spy['train_val']['cagr_pct']:+.1f}%/yr, Sharpe {_fmt(spy['train_val']['sharpe'], '.2f')}",
+             "", "| variant | trades | win% | avg trade | median | ≥+50% | worst | random avg | excess vs random t (train+val) | "
+             "2015 large caps excess | CAGR | max DD | Sharpe | train+val CAGR / Sharpe | OOS CAGR | random-entry portfolio CAGR | without top 3 |",
+             "|---|" + "---|" * 16]
+    for v in r["variants"]:
+        t = v["trades"]
+        if not t.get("n"):
+            lines.append(f"| {v['name']} | 0 |" + " |" * 15)
+            continue
+        p, tv, o, rp, w = v["portfolio"], v["portfolio_train_val"], v["portfolio_oos"], v["random_portfolio"], v["without_top3"]
+        ex, lc = v["excess_train_val"], v["excess_largecap"]
+        lines.append(
+            f"| {v['name']} | {t['n']} | {t['win_rate'] * 100:.0f} | {t['avg_ret_pct']:+.1f}% | {t['median_ret_pct']:+.1f}% | "
+            f"{t['big_winners_pct'] * 100:.1f}% | {t['worst_pct']:+.0f}% | {v['random_entries'].get('avg_ret_pct', 0):+.1f}% | "
+            f"{_fmt(ex.get('avg_excess_pct'), '+.2f')}% ({_fmt(ex.get('t_month'), '.2f')}) | "
+            f"{_fmt(lc.get('avg_excess_pct'), '+.2f')}% (n={v['largecap_trades'].get('n', 0)}) | "
+            f"{_fmt(p.get('cagr_pct'), '+.1f')}% | {_fmt(p.get('max_drawdown_pct'), '.0f')}% | {_fmt(p.get('sharpe'), '.2f')} | "
+            f"{_fmt(tv.get('cagr_pct'), '+.1f')}% / {_fmt(tv.get('sharpe'), '.2f')} | {_fmt(o.get('cagr_pct'), '+.1f')}% | "
+            f"{_fmt(rp.get('cagr_pct'), '+.1f')}% | {_fmt(w.get('cagr_pct'), '+.1f')}% |")
+    lines += ["", f"Pre-registered gates: excess vs random entries t >= {rk.GATE_MIN_T:g} (train+val); portfolio beats SPY on "
+                  f"train+val CAGR and Sharpe; positive excess among 2015 large caps; CAGR without the 3 best stocks >= SPY's; "
+                  f"max drawdown >= {rk.GATE_MAX_DRAWDOWN:g}%.", "",
+              f"**Chosen: {r['chosen'] or 'none — no rocket variant passed every gate'}**", "",
+              "| variant | passes | failed gates |", "|---|---|---|"]
+    for v in r["variants"]:
+        g = v.get("gates")
+        if g:
+            lines.append(f"| {v['name']} | {'✅' if g['passes'] else '❌'} | "
+                         f"{', '.join(k for k, ok in g['checks'].items() if not ok) or '—'} |")
+    return lines
+
+
 def _fmt(value, spec: str, missing: str = "—") -> str:
     return missing if value is None or (isinstance(value, float) and math.isnan(value)) else format(value, spec)
 
@@ -711,6 +806,8 @@ def to_markdown(results: dict) -> str:
         for c in lc["configs"]:
             if c["name"] == sel.get("chosen") or not sel.get("chosen"):
                 lines.append(f"| {c['name']} | " + " | ".join(_fmt(c["by_year"].get(y), '+.0f') + "%" for y in years) + " |")
+    if results.get("rockets"):
+        lines += _rocket_markdown(results["rockets"])
     lines += ["", "## Mean R by year (all universe, fixed exit)", ""]
     years = sorted({y for row in results["universes"]["all"]["per_trade"] for y in row["avg_r_by_year"]})
     lines += ["| group | policy | " + " | ".join(years) + " |", "|---|---|" + "---|" * len(years)]
@@ -738,6 +835,7 @@ def run_research(symbols: list[str], years: int = 10, out_dir: str | Path = "res
         returns: dict[str, pd.Series] = {}
         closes: dict[str, pd.Series] = {}
         ohlc: dict[str, pd.DataFrame] = {}
+        raw_frames: dict[str, pd.DataFrame] = {}
         failed: dict[str, str] = {}
         gap_skipped = 0
         for n, symbol in enumerate(symbols, 1):
@@ -754,6 +852,7 @@ def run_research(symbols: list[str], years: int = 10, out_dir: str | Path = "res
             returns[symbol] = ret_6m
             closes[symbol] = pd.Series(df["close"].to_numpy(dtype=float), index=_session_dates(df))
             ohlc[symbol] = pd.DataFrame({c: df[c].to_numpy(dtype=float) for c in ("open", "low", "close")}, index=_session_dates(df))
+            raw_frames[symbol] = df
             gap_skipped += skipped
             if n % 25 == 0:
                 logger.info("research: %d/%d symbols done, %d candidate rows so far", n, len(symbols), len(all_rows))
@@ -797,6 +896,7 @@ def run_research(symbols: list[str], years: int = 10, out_dir: str | Path = "res
             "rotation": rotation,
         }
 
+    results["rockets"] = rocket_results(raw_frames, set(largecap), spy_closes, prices, splits)
     results["rotation_selection"] = select_rotation(results["universes"]["largecap_2015"].get("rotation"))
     results["meta"] = {
         "symbols_ok": len(returns), "symbols_failed": len(failed), "failed": failed, "years": years,
