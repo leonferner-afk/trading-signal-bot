@@ -42,7 +42,10 @@ jobs:
           PYTHONPATH: .
           DB_PATH: /tmp/research.db
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
-        run: python -m app.cli research --years "${{ inputs.years || '10' }}" --symbols "${{ inputs.symbols }}" --out "$GITHUB_WORKSPACE/research_output"
+          # Inputs go through env, never straight into the script (no injection).
+          YEARS: ${{ inputs.years || '10' }}
+          SYMBOLS: ${{ inputs.symbols }}
+        run: python -m app.cli research --years "$YEARS" --symbols "$SYMBOLS" --out "$GITHUB_WORKSPACE/research_output"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -19,12 +19,12 @@ def _append_step_summary(markdown: str) -> None:
 
 
 def cmd_research(args: argparse.Namespace) -> int:
-    from app.config import settings
     from app.db import init_db
     from app.research import run_research
+    from app.universe import research_universe
 
     init_db()
-    symbols = args.symbols.split(",") if args.symbols else list(settings.watchlist)
+    symbols = [s.strip() for s in args.symbols.split(",") if s.strip()] or list(research_universe())
     results = run_research(symbols, years=args.years, out_dir=args.out)
     report = open(os.path.join(args.out, "research.md"), encoding="utf-8").read()
     print(report)
@@ -49,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     research = sub.add_parser("research", help="backtest every strategy across the universe")
     research.add_argument("--years", type=int, default=10)
     research.add_argument("--out", default="research_output")
-    research.add_argument("--symbols", default="", help="comma-separated; default = configured universe")
+    research.add_argument("--symbols", default="", help="comma-separated; default = research universe (scan universe + 2015 large caps)")
     research.set_defaults(func=cmd_research)
 
     daily = sub.add_parser("daily", help="scan, update open positions, report and notify")

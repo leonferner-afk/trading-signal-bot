@@ -1,27 +1,29 @@
-"""Evidence research: how would the BUY signals this bot sends have done
-on real history, across the whole universe, after costs — and did they
-beat buying at random with the exact same exit rules?
+"""Evidence research: would the BUY signals this bot sends have made money
+on real history, after realistic costs, compared with (a) buying random
+stocks from the same list on the same days and (b) just holding SPY?
 
-That last comparison is the point. The universe is written today, so it
-leans toward stocks that survived and went up; any long strategy looks
-good on it. A rule set only shows real timing/selection edge if it beats
-the random-entry baseline on the same symbols and dates.
-
-Mechanics mirror live trading:
-  - signal at a daily close -> filled at the next session's open, fees and
-    slippage both ways
-  - stop/target are the levels the user is actually told
-  - a gap through the stop fills at the open; a setup already invalidated
-    at the next open is not taken
-  - one open position per symbol at a time
-  - results are split by date into train / validation / out-of-sample
-  - two exit styles: "fixed" (stop + fixed target, what the bot sends
-    today) and "trail" (same initial stop, no target, a trailing stop
-    3 x ATR% under the highest high, moved once per day) — the latter
-    lets the rare huge winner run instead of capping it
-  - a portfolio simulation (max open positions, max new buys per day,
-    1% risk per trade, no leverage) turns per-trade stats into what
-    matters: yearly return and worst drawdown, next to SPY buy-and-hold.
+Built to be hard to fool:
+  - signal at a daily close -> filled at the next session's open; stop and
+    target are the levels the user is told; a gap through the stop fills at
+    the open; a setup already invalidated at the next open is not taken
+  - rows keep raw fill/exit prices, so every statistic can be recomputed at
+    any cost level; the primary level (COST_BPS_PRIMARY per side) reflects a
+    Swedish retail account trading US stocks (courtage + FX conversion +
+    slippage), with a sensitivity grid around it
+  - per-trade t-statistics are computed over MONTHLY averages, because trades
+    opened in the same month share the same market and are not independent
+  - every rule is compared with the random-entry baseline under the same
+    filters (the only fair test of timing/selection edge on a hand-built
+    universe), month by month
+  - portfolio simulation is marked to market DAILY, caps every position at
+    MAX_POSITION_PCT of equity, never uses leverage, and is compared with
+    40 simulations that pick randomly from the same eligible candidates, so
+    "the ranking adds value" is tested rather than assumed
+  - everything is also run on LARGECAP_2015 alone — stocks chosen by size a
+    decade ago, not by what happened since — as a control for the
+    survivorship / hindsight bias of a universe written today
+  - the train / validation / out-of-sample split is by date; the live
+    configuration must be chosen on train+validation only
 """
 from __future__ import annotations
 
@@ -34,7 +36,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from app.backtest.engine import MAX_HOLDING_BARS_DEFAULT, Exit, net_return_pct, resolve_exit
+from app.backtest.engine import MAX_HOLDING_BARS_DEFAULT, resolve_exit
 from app.config import settings
 from app.data.news_client import NewsResult
 from app.data.stock_client import DataUnavailable, StockClient
@@ -43,37 +45,51 @@ from app.regime.classifier import RISK_NEUTRAL, RISK_OFF, RISK_ON, TREND_DOWN, T
 from app.risk.risk_reward import STOP_ATR_MULT, TARGET_ATR_MULT
 from app.scanner.scanner import ANCHOR_SYMBOL, enrich
 from app.scoring.score import build_signal
-from app.strategies import breakout, momentum, reversal
+from app.strategies import breakout, momentum
+from app.universe import LARGECAP_2015
 
 logger = logging.getLogger("tradingbot.research")
 
 WARMUP_BARS = 210
 BASELINE_EVERY_N_BARS = 5
-RS_LOOKBACK = 126          # ~6 months
-HIGH_LOOKBACK = 252        # ~52 weeks
-TRAIL_ATR_MULT = 3.0
-TRAIL_MAX_HOLD = 250
-EXITS = ("fixed", "trail")
-STRATEGIES = {"breakout": breakout, "momentum": momentum, "reversal": reversal}
+RS_LOOKBACK = 126           # ~6 months
+HIGH_LOOKBACK = 252         # ~52 weeks
+MIN_ATR_PCT = 1.0           # below this a "mover" isn't moving (e.g. a pending cash takeover)
+MIN_STOP_DIST_PCT = 0.5     # tighter stops are noise, and blow up position sizes
+MAX_STOP_DIST_PCT = 25.0
+WIDE_STOP_ATR_MULT = 2.5
+COST_BPS_PRIMARY = 40.0     # per side: ~0.15% courtage + 0.25% FX (SEK->USD), incl. slippage
+COST_BPS_GRID = (15.0, 40.0, 70.0)
+MAX_OPEN = 8
+MAX_NEW_PER_DAY = 3
+RISK_PCT = 1.0
+MAX_POSITION_PCT = 25.0
+RANDOM_RUNS = 40
+STRATEGIES = {"breakout": breakout, "momentum": momentum}
+EXITS = ("fixed", "wide")
 _NO_NEWS = NewsResult(symbol="", available=False, reason="not used in research")
 
 # (min_score, SPY>200d, stock>200d, RS percentile min, close/52w-high min)
 POLICY_GRID = [
     (0, False, False, 0, 0),
-    (70, False, False, 0, 0),
-    (80, False, False, 0, 0),
     (0, True, True, 0, 0),
+    (0, True, True, 0.8, 0),
+    (0, True, True, 0.8, 0.9),
     (70, True, True, 0, 0),
     (70, True, True, 0.8, 0),
-    (0, True, True, 0.8, 0),
-    (0, True, True, 0.9, 0),
-    (0, True, True, 0.8, 0.9),
-    (70, True, True, 0.8, 0.9),
 ]
 
-
-def _thresholds() -> tuple[float, float, float]:
-    return (settings.score_exceptional_min, settings.score_high_quality_min, settings.score_watch_min)
+# (label, candidate group, policy params, rank column)
+PORTFOLIO_CONFIGS = [
+    ("random picks (reference)", "baseline_random", (0, False, False, 0, 0), "rand"),
+    ("random picks, trend filter", "baseline_random", (0, True, True, 0, 0), "rand"),
+    ("RS leaders, trend filter", "baseline_random", (0, True, True, 0.8, 0), "rs"),
+    ("RS leaders near 52w high", "baseline_random", (0, True, True, 0.8, 0.9), "rs"),
+    ("signals score>=70, trend", "combined", (70, True, True, 0, 0), "score"),
+    ("signals score>=70, trend, RS top 20%", "combined", (70, True, True, 0.8, 0), "rs"),
+    ("signals, trend, RS top 20%", "combined", (0, True, True, 0.8, 0), "rs"),
+    ("signals, trend, RS top 20%, near 52w high", "combined", (0, True, True, 0.8, 0.9), "rs"),
+]
 
 
 def _session_dates(df: pd.DataFrame) -> np.ndarray:
@@ -89,53 +105,16 @@ def market_context(spy: pd.DataFrame) -> dict:
     return context
 
 
-def resolve_trailing_exit(opens, highs, lows, closes, entry_index: int, initial_stop: float, trail_pct: float, max_hold: int) -> Exit | None:
-    """Long only. Initial stop until the trailing level (highest high since
-    entry x (1 - trail_pct)) rises above it; the level is moved once per
-    day after the close, like a stop you raise each evening. Gap-aware."""
-    raw_entry = float(opens[entry_index])
-    if raw_entry <= initial_stop:
-        return None
-    stop, highest, mfe, mae = initial_stop, raw_entry, 0.0, 0.0
-    last_index = min(entry_index + max_hold, len(opens) - 1)
-    for j in range(entry_index, last_index + 1):
-        o, h, l = float(opens[j]), float(highs[j]), float(lows[j])
-        mfe = max(mfe, (h - raw_entry) / raw_entry * 100)
-        mae = max(mae, (raw_entry - l) / raw_entry * 100)
-        if l <= stop:
-            return Exit(j, min(stop, o), "TRAIL_STOP" if stop > initial_stop else "STOP_HIT", mfe, mae)
-        highest = max(highest, h)
-        stop = max(stop, highest * (1 - trail_pct))
-    return Exit(last_index, float(closes[last_index]), "TIME_EXIT", mfe, mae)
+def net_return_pct(fill, exit_raw, cost_bps):
+    c = cost_bps / 10000.0
+    return (exit_raw * (1 - c) / (fill * (1 + c)) - 1) * 100
 
 
-def _row(symbol, strategy, exit_kind, dates, i, opens, planned_entry, stop, exit_, extra) -> dict:
-    """R is measured against the *planned* risk (notified entry -> stop),
-    because that's what the position was sized from."""
-    fill = float(opens[i + 1])
-    ret = net_return_pct(fill, exit_.raw_price, "LONG", settings.fee_bps, settings.slippage_bps)
-    fill_with_costs = fill * (1 + (settings.fee_bps + settings.slippage_bps) / 10000.0)
-    planned_risk = planned_entry - stop
-    return {
-        "symbol": symbol, "strategy": strategy, "exit": exit_kind, "date": dates[i], "i": i,
-        "entry_date": dates[i + 1], "exit_i": exit_.index, "exit_date": dates[exit_.index],
-        "result": exit_.result, "ret_pct": ret,
-        "r_multiple": (ret / 100 * fill_with_costs) / planned_risk if planned_risk > 0 else float("nan"),
-        "stop_dist_pct": planned_risk / planned_entry * 100, "hold_bars": exit_.index - i, **extra,
-    }
-
-
-def _both_exits(symbol, strategy, dates, i, arrays, planned_entry, stop, target, atr_pct, extra) -> tuple[list[dict], bool]:
-    opens, highs, lows, closes = arrays
-    rows = []
-    fixed = resolve_exit(opens, highs, lows, closes, i + 1, "LONG", stop, target, MAX_HOLDING_BARS_DEFAULT)
-    if fixed is None:
-        return rows, True
-    rows.append(_row(symbol, strategy, "fixed", dates, i, opens, planned_entry, stop, fixed, extra))
-    trail = resolve_trailing_exit(opens, highs, lows, closes, i + 1, stop, TRAIL_ATR_MULT * atr_pct / 100, TRAIL_MAX_HOLD)
-    if trail is not None:
-        rows.append(_row(symbol, strategy, "trail", dates, i, opens, planned_entry, stop, trail, extra))
-    return rows, False
+def r_multiple(fill, exit_raw, planned_entry, stop, cost_bps):
+    """P&L per share in units of the *planned* risk (notified entry -> stop),
+    since that's what the position was sized from."""
+    c = cost_bps / 10000.0
+    return (exit_raw * (1 - c) - fill * (1 + c)) / (planned_entry - stop)
 
 
 def _long_preconditions(df: pd.DataFrame) -> dict[str, np.ndarray]:
@@ -144,32 +123,47 @@ def _long_preconditions(df: pd.DataFrame) -> dict[str, np.ndarray]:
     return {
         "breakout": df["breakout_up"].fillna(False).astype(bool).to_numpy(),
         "momentum": ((df["ema_9"] > df["ema_21"]) & (df["ema_21"] > df["ema_50"])).to_numpy(),
-        "reversal": (df["low"].shift(1) <= df["bb_lower"].shift(1)).fillna(False).to_numpy(),
     }
 
 
-def symbol_trades(symbol: str, df: pd.DataFrame, market: dict) -> tuple[list[dict], int, pd.Series]:
-    """Every LONG candidate each strategy produced on this symbol (plus
-    random-entry baseline), each simulated independently under both exit
+def symbol_rows(symbol: str, df: pd.DataFrame, market: dict) -> tuple[list[dict], int, pd.Series]:
+    """Every LONG candidate each strategy produced on this symbol, plus the
+    random-entry baseline, each simulated independently under both exit
     styles. Returns (rows, gap-skipped count, 6-month return by date)."""
     n = len(df)
-    arrays = tuple(df[c].to_numpy(dtype=float) for c in ("open", "high", "low", "close"))
-    closes = arrays[3]
+    opens, highs, lows, closes = (df[c].to_numpy(dtype=float) for c in ("open", "high", "low", "close"))
+    atr = df["atr_14"].to_numpy(dtype=float)
     dates = _session_dates(df)
     above_200 = (df["close"] > df["sma_200"]).to_numpy()
-    atr_pct = (df["atr_14"] / df["close"] * 100).to_numpy()
+    atr_pct = atr / closes * 100
     near_high = (df["close"] / df["high"].rolling(HIGH_LOOKBACK, min_periods=RS_LOOKBACK).max()).to_numpy()
-    extension = (df["close"] / df["ema_21"] - 1).to_numpy()
     ret_6m = pd.Series((df["close"] / df["close"].shift(RS_LOOKBACK) - 1).to_numpy(), index=dates)
-
-    def context(i: int, score: float) -> dict:
-        risk, spy_up = market.get(dates[i], (RISK_NEUTRAL, False))
-        return {"score": score, "market_risk": risk, "spy_above_200": spy_up, "stock_above_200": bool(above_200[i]),
-                "atr_pct": float(atr_pct[i]), "near_high": float(near_high[i]), "extension": float(extension[i])}
-
     rows: list[dict] = []
     gap_skipped = 0
-    thresholds = _thresholds()
+
+    def add(strategy: str, i: int, planned_entry: float, stop: float, target: float, score: float) -> None:
+        nonlocal gap_skipped
+        if not (atr_pct[i] >= MIN_ATR_PCT):
+            return
+        risk, spy_up = market.get(dates[i], (RISK_NEUTRAL, False))
+        context = {"score": score, "market_risk": risk, "spy_above_200": spy_up, "stock_above_200": bool(above_200[i]),
+                   "atr_pct": float(atr_pct[i]), "near_high": float(near_high[i])}
+        for exit_kind, s in (("fixed", stop), ("wide", planned_entry - WIDE_STOP_ATR_MULT * atr[i])):
+            dist = (planned_entry - s) / planned_entry * 100
+            if not MIN_STOP_DIST_PCT <= dist <= MAX_STOP_DIST_PCT:
+                continue
+            exit_ = resolve_exit(opens, highs, lows, closes, i + 1, "LONG", s, target, MAX_HOLDING_BARS_DEFAULT)
+            if exit_ is None:
+                gap_skipped += exit_kind == "fixed"
+                continue
+            rows.append({
+                "symbol": symbol, "strategy": strategy, "exit": exit_kind, "date": dates[i], "i": i,
+                "entry_date": dates[i + 1], "exit_i": exit_.index, "exit_date": dates[exit_.index],
+                "result": exit_.result, "fill": float(opens[i + 1]), "exit_raw": float(exit_.raw_price),
+                "planned_entry": planned_entry, "stop": s, "stop_dist_pct": dist, "hold_bars": exit_.index - i,
+                **context,
+            })
+
     for name, module in STRATEGIES.items():
         for i in np.flatnonzero(_long_preconditions(df)[name]):
             if i < WARMUP_BARS or i >= n - 1:
@@ -182,33 +176,33 @@ def symbol_trades(symbol: str, df: pd.DataFrame, market: dict) -> tuple[list[dic
             if snapshot is None:
                 continue
             risk, _ = market.get(dates[i], (RISK_NEUTRAL, False))
-            signal = build_signal(candidate, snapshot, _NO_NEWS, risk, tier_thresholds=thresholds)
-            new, skipped = _both_exits(symbol, name, dates, i, arrays, signal.entry, signal.stop, signal.target,
-                                       atr_pct[i], context(i, signal.score))
-            rows += new
-            gap_skipped += skipped
+            signal = build_signal(candidate, snapshot, _NO_NEWS, risk, tier_thresholds=(
+                settings.score_exceptional_min, settings.score_high_quality_min, settings.score_watch_min))
+            add(name, i, signal.entry, signal.stop, signal.target, signal.score)
 
     for i in range(WARMUP_BARS, n - 1, BASELINE_EVERY_N_BARS):
-        atr = float(df["atr_14"].iloc[i])
-        if not math.isfinite(atr) or atr <= 0:
-            continue
-        stop, target = closes[i] - STOP_ATR_MULT * atr, closes[i] + TARGET_ATR_MULT * atr
-        new, _ = _both_exits(symbol, "baseline_random", dates, i, arrays, closes[i], stop, target, atr_pct[i],
-                             context(i, float("nan")))
-        rows += new
+        if math.isfinite(atr[i]) and atr[i] > 0:
+            add("baseline_random", i, closes[i], closes[i] - STOP_ATR_MULT * atr[i], closes[i] + TARGET_ATR_MULT * atr[i], float("nan"))
     return rows, gap_skipped, ret_6m
 
 
-def attach_relative_strength(rows: pd.DataFrame, returns: dict[str, pd.Series]) -> pd.DataFrame:
+def attach_relative_strength(rows: pd.DataFrame, returns: dict[str, pd.Series], column: str = "rs") -> pd.DataFrame:
     """Cross-sectional percentile (0-1) of each symbol's 6-month return
-    among all symbols on that date — 1.0 = strongest in the universe."""
+    among `returns`' symbols on that date — 1.0 = strongest."""
     wide = pd.DataFrame(returns)
-    pct = wide.rank(axis=1, pct=True).stack().rename("rs")
+    pct = wide.rank(axis=1, pct=True).stack().rename(column)
     pct.index.names = ["date", "symbol"]
     return rows.merge(pct.reset_index(), on=["date", "symbol"], how="left")
 
 
-def policy_mask(d: pd.DataFrame, min_score, spy, stock, rs_min, near_high_min) -> pd.Series:
+def with_costs(rows: pd.DataFrame, cost_bps: float) -> pd.DataFrame:
+    return rows.assign(
+        ret_pct=net_return_pct(rows["fill"], rows["exit_raw"], cost_bps),
+        r_multiple=r_multiple(rows["fill"], rows["exit_raw"], rows["planned_entry"], rows["stop"], cost_bps),
+    )
+
+
+def policy_mask(d: pd.DataFrame, min_score, spy, stock, rs_min, near_high_min, rs_col: str = "rs") -> pd.Series:
     mask = pd.Series(True, index=d.index)
     if min_score > 0:
         mask &= d["score"] >= min_score
@@ -217,7 +211,7 @@ def policy_mask(d: pd.DataFrame, min_score, spy, stock, rs_min, near_high_min) -
     if stock:
         mask &= d["stock_above_200"].astype(bool)
     if rs_min > 0:
-        mask &= d["rs"] >= rs_min
+        mask &= d[rs_col] >= rs_min
     if near_high_min > 0:
         mask &= d["near_high"] >= near_high_min
     return mask.fillna(False)
@@ -239,24 +233,46 @@ def take_positions(candidates: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(taken)
 
 
+def _monthly_t(values: pd.Series, months: pd.Series) -> tuple[float | None, int]:
+    by_month = values.groupby(months).mean().dropna()
+    if len(by_month) < 3 or by_month.std(ddof=1) == 0:
+        return None, len(by_month)
+    return float(by_month.mean() / by_month.std(ddof=1) * math.sqrt(len(by_month))), len(by_month)
+
+
 def summarize(trades: pd.DataFrame) -> dict:
     if trades.empty:
         return {"n": 0}
-    r = trades["r_multiple"].dropna()
+    r = trades["r_multiple"]
     ret = trades["ret_pct"]
     gains, losses = ret[ret > 0].sum(), -ret[ret <= 0].sum()
-    std = float(r.std(ddof=1)) if len(r) > 1 else float("nan")
+    t_month, months = _monthly_t(r, trades["date"].str[:7])
     return {
         "n": int(len(trades)),
+        "months": months,
         "win_rate": round(float((ret > 0).mean()), 4),
         "avg_ret_pct": round(float(ret.mean()), 3),
-        "median_ret_pct": round(float(ret.median()), 3),
-        "avg_r": round(float(r.mean()), 4) if len(r) else None,
-        "t_stat_r": round(float(r.mean() / std * math.sqrt(len(r))), 2) if len(r) > 1 and std > 0 else None,
+        "avg_r": round(float(r.mean()), 4),
+        "median_r": round(float(r.median()), 4),
+        "t_month": round(t_month, 2) if t_month is not None else None,
         "profit_factor": round(float(gains / losses), 3) if losses > 0 else None,
         "big_winners_pct": round(float((ret >= 50).mean()), 4),
         "avg_hold_bars": round(float(trades["hold_bars"].mean()), 1),
     }
+
+
+def excess_vs_baseline(policy: pd.DataFrame, baseline: pd.DataFrame) -> dict:
+    """Month-by-month difference in mean R between the rule's trades and
+    random entries under the same non-score filters."""
+    if policy.empty or baseline.empty:
+        return {"months": 0}
+    p = policy.groupby(policy["date"].str[:7])["r_multiple"].mean()
+    b = baseline.groupby(baseline["date"].str[:7])["r_multiple"].mean()
+    diff = (p - b).dropna()
+    if len(diff) < 3 or diff.std(ddof=1) == 0:
+        return {"months": int(len(diff))}
+    return {"months": int(len(diff)), "avg_excess_r": round(float(diff.mean()), 4),
+            "t_month": round(float(diff.mean() / diff.std(ddof=1) * math.sqrt(len(diff))), 2)}
 
 
 @dataclass
@@ -271,201 +287,267 @@ def split_dates(all_rows: pd.DataFrame) -> SplitDates:
     return SplitDates(str((dates.iloc[0] + span * 0.6).date()), str((dates.iloc[0] + span * 0.8).date()))
 
 
-def _select(rows: pd.DataFrame, group: str) -> pd.DataFrame:
+def select_group(rows: pd.DataFrame, group: str) -> pd.DataFrame:
     if group == "combined":
-        chosen = rows[~rows["strategy"].isin(["baseline_random", "reversal"])]
+        chosen = rows[rows["strategy"].isin(list(STRATEGIES))]
         # Live behavior: the highest-scoring strategy wins a symbol-day.
         return chosen.sort_values("score", ascending=False).drop_duplicates(["symbol", "i", "exit"])
     return rows[rows["strategy"] == group]
 
 
-def evaluate(all_rows: pd.DataFrame) -> dict:
-    splits = split_dates(all_rows)
-    results = {"splits": splits.__dict__, "policies": []}
+def evaluate_trades(rows: pd.DataFrame, splits: SplitDates, rs_col: str) -> list[dict]:
+    out = []
     for exit_kind in EXITS:
-        rows_x = all_rows[all_rows["exit"] == exit_kind]
-        for group in ("breakout", "momentum", "reversal", "combined", "baseline_random"):
-            rows = _select(rows_x, group)
+        rx = rows[rows["exit"] == exit_kind]
+        baseline = select_group(rx, "baseline_random")
+        for group in ("breakout", "momentum", "combined", "baseline_random"):
+            grp = select_group(rx, group)
             for params in POLICY_GRID:
                 if group == "baseline_random" and params[0] > 0:
                     continue
-                taken = take_positions(rows[policy_mask(rows, *params)])
+                taken = take_positions(grp[policy_mask(grp, *params, rs_col=rs_col)])
                 if taken.empty:
                     continue
-                results["policies"].append({
+                base_taken = take_positions(baseline[policy_mask(baseline, 0, *params[1:], rs_col=rs_col)])
+                in_sample = taken[taken["date"] < splits.oos_start]
+                out.append({
                     "group": group, "exit": exit_kind, "policy": research_policy_name(*params),
                     "overall": summarize(taken),
-                    "train": summarize(taken[taken["date"] < splits.validation_start]),
-                    "validation": summarize(taken[(taken["date"] >= splits.validation_start) & (taken["date"] < splits.oos_start)]),
+                    "train_val": summarize(in_sample),
                     "out_of_sample": summarize(taken[taken["date"] >= splits.oos_start]),
+                    "excess_vs_random": excess_vs_baseline(taken, base_taken) if group != "baseline_random" else None,
+                    "avg_r_by_year": taken.groupby(taken["date"].str[:4])["r_multiple"].mean().round(3).to_dict(),
                 })
-
-    fixed = all_rows[(all_rows["exit"] == "fixed") & (all_rows["strategy"] != "baseline_random")]
-    buckets = pd.cut(fixed["score"], [0, 50, 60, 70, 80, 90, 101], right=False)
-    results["score_buckets_unlocked"] = [
-        {"strategy": s, "bucket": str(b), "n": int(len(g)), "avg_r": round(float(g["r_multiple"].mean()), 4)}
-        for (s, b), g in fixed.groupby(["strategy", buckets], observed=True) if len(g)
-    ]
-    return results
-
-
-def simulate_portfolio(trades: pd.DataFrame, rank_col: str, start: str | None = None,
-                       max_open: int = 8, max_new: int = 3, risk_pct: float = 1.0) -> dict:
-    """Day-by-day portfolio: at most `max_open` positions and `max_new` new
-    buys per day (best `rank_col` first), each sized so its stop loses
-    `risk_pct` of current equity, never more notional than free equity.
-    Equity is marked at exits only (realized), so intra-trade drawdowns
-    are understated — stated in the report."""
-    if start:
-        trades = trades[trades["date"] >= start]
-    if trades.empty:
-        return {"trades": 0}
-    by_date = {d: g.sort_values(rank_col, ascending=False) for d, g in trades.groupby("date")}
-    exit_days = sorted(set(trades["exit_date"]))
-    days = sorted(set(by_date) | set(exit_days))
-    equity, peak, max_dd = 1.0, 1.0, 0.0
-    open_pos: dict[str, tuple[str, float, float, float]] = {}
-    taken_r, taken_ret = [], []
-    for day in days:
-        for sym, (exit_day, notional, ret, r) in list(open_pos.items()):
-            if exit_day <= day:
-                equity += notional * ret / 100
-                taken_r.append(r)
-                taken_ret.append(ret)
-                del open_pos[sym]
-        peak = max(peak, equity)
-        max_dd = min(max_dd, equity / peak - 1)
-        new_today = 0
-        for row in by_date.get(day, pd.DataFrame()).itertuples(index=False):
-            if len(open_pos) >= max_open or new_today >= max_new:
-                break
-            if row.symbol in open_pos or not row.stop_dist_pct > 0:
-                continue
-            free = equity - sum(p[1] for p in open_pos.values())
-            notional = min(equity * risk_pct / 100 / (row.stop_dist_pct / 100), free)
-            if notional < equity * 0.02:
-                continue
-            open_pos[row.symbol] = (row.exit_date, notional, row.ret_pct, row.r_multiple)
-            new_today += 1
-    for _, notional, ret, r in open_pos.values():  # still open at the end: marked at their last close
-        equity += notional * ret / 100
-        taken_r.append(r)
-        taken_ret.append(ret)
-    years = max((pd.Timestamp(days[-1]) - pd.Timestamp(days[0])).days / 365.25, 1e-9)
-    return {
-        "trades": len(taken_r),
-        "trades_per_year": round(len(taken_r) / years, 1),
-        "win_rate": round(float(np.mean(np.array(taken_ret) > 0)), 3) if taken_ret else None,
-        "avg_r": round(float(np.nanmean(taken_r)), 3) if taken_r else None,
-        "total_return_pct": round((equity - 1) * 100, 1),
-        "cagr_pct": round((equity ** (1 / years) - 1) * 100, 2) if equity > 0 else -100.0,
-        "max_drawdown_pct_realized": round(max_dd * 100, 1),
-        "years": round(years, 1),
-    }
-
-
-def spy_benchmark(spy: pd.DataFrame, start: str | None = None) -> dict:
-    dates = _session_dates(spy)
-    closes = spy["close"].to_numpy(dtype=float)
-    mask = dates >= start if start else np.ones(len(dates), bool)
-    mask &= np.arange(len(dates)) >= WARMUP_BARS
-    c = closes[mask]
-    years = (pd.Timestamp(dates[mask][-1]) - pd.Timestamp(dates[mask][0])).days / 365.25
-    dd = (c / np.maximum.accumulate(c) - 1).min()
-    return {"cagr_pct": round(((c[-1] / c[0]) ** (1 / years) - 1) * 100, 2), "max_drawdown_pct": round(dd * 100, 1),
-            "total_return_pct": round((c[-1] / c[0] - 1) * 100, 1), "years": round(years, 1)}
-
-
-PORTFOLIO_CONFIGS = [
-    # (label, group, policy params, rank column)
-    ("random entries (reference)", "baseline_random", (0, False, False, 0, 0), "rand"),
-    ("random entries, trend filter", "baseline_random", (0, True, True, 0, 0), "rand"),
-    ("RS leaders (top 20%), trend filter", "baseline_random", (0, True, True, 0.8, 0), "rs"),
-    ("RS leaders near 52w high", "baseline_random", (0, True, True, 0.8, 0.9), "rs"),
-    ("signals score>=70 + trend (current live)", "combined", (70, True, True, 0, 0), "score"),
-    ("signals score>=70 + trend + RS top 20%", "combined", (70, True, True, 0.8, 0), "score"),
-    ("signals any score + trend + RS top 20%", "combined", (0, True, True, 0.8, 0), "rs"),
-]
-
-
-def portfolio_results(all_rows: pd.DataFrame, spy: pd.DataFrame, splits: dict) -> dict:
-    rng = np.random.default_rng(7)
-    rows = all_rows.assign(rand=rng.random(len(all_rows)))
-    out = {"benchmark_spy": spy_benchmark(spy), "benchmark_spy_oos": spy_benchmark(spy, splits["oos_start"]), "configs": []}
-    for label, group, params, rank in PORTFOLIO_CONFIGS:
-        for exit_kind in EXITS:
-            chosen = _select(rows[rows["exit"] == exit_kind], group)
-            chosen = chosen[policy_mask(chosen, *params)]
-            out["configs"].append({
-                "label": label, "exit": exit_kind, "policy": research_policy_name(*params), "group": group,
-                "full": simulate_portfolio(chosen, rank),
-                "oos": simulate_portfolio(chosen, rank, start=splits["oos_start"]),
-            })
     return out
 
 
-def _cell(stats: dict, key: str, fmt: str) -> str:
-    value = stats.get(key)
-    return "—" if value is None or not stats.get("n", stats.get("trades")) else format(value, fmt)
+class PriceBook:
+    """Daily closes per symbol, for marking open positions to market."""
+
+    def __init__(self, closes: dict[str, pd.Series]):
+        self._closes = {s: dict(zip(c.index, c.to_numpy(dtype=float))) for s, c in closes.items()}
+
+    def close(self, symbol: str, date: str, fallback: float) -> float:
+        return self._closes.get(symbol, {}).get(date, fallback)
 
 
-def to_markdown(results: dict, meta: dict) -> str:
-    p = results["portfolio"]
-    spy, spy_oos = p["benchmark_spy"], p["benchmark_spy_oos"]
+def simulate_portfolio(trades: pd.DataFrame, rank_col: str, calendar: list[str], prices: PriceBook, cost_bps: float,
+                       start: str | None = None, end: str | None = None, rng: np.random.Generator | None = None) -> dict:
+    """Day-by-day portfolio marked to market at every close.
+
+    Each candidate row is a trade that would be entered at the open of
+    `entry_date`; on each day the best `rank_col` candidates are bought
+    (at most MAX_NEW_PER_DAY, at most MAX_OPEN held, one position per
+    symbol), each sized so hitting its stop loses RISK_PCT of equity,
+    capped at MAX_POSITION_PCT of equity and at free cash. `rng` replaces
+    the ranking with a random order (the randomization test)."""
+    c = cost_bps / 10000.0
+    days = [d for d in calendar if (start is None or d >= start) and (end is None or d < end)]
+    if trades.empty or len(days) < 20:
+        return {"trades": 0}
+    trades = trades[(trades["entry_date"] >= days[0]) & (trades["entry_date"] <= days[-1])]
+    if rng is not None:
+        trades = trades.assign(_rank=rng.random(len(trades)))
+        rank_col = "_rank"
+    # Sort once (day ascending, rank descending, NaN rank last) and walk plain
+    # arrays — this runs hundreds of times per research job.
+    trades = trades.sort_values(["entry_date", rank_col], ascending=[True, False], kind="mergesort", na_position="last")
+    t_day = trades["entry_date"].to_numpy()
+    t_sym = trades["symbol"].to_numpy()
+    t_fill = trades["fill"].to_numpy(dtype=float)
+    t_exit_date = trades["exit_date"].to_numpy()
+    t_exit_raw = trades["exit_raw"].to_numpy(dtype=float)
+    t_stop = trades["stop_dist_pct"].to_numpy(dtype=float)
+    t_r = trades["r_multiple"].to_numpy(dtype=float)
+    t_ret = trades["ret_pct"].to_numpy(dtype=float)
+    day_keys, day_first = np.unique(t_day, return_index=True)
+    day_slices = {d: (int(a), int(b)) for d, a, b in zip(day_keys, day_first, list(day_first[1:]) + [len(t_day)])}
+
+    cash, equity = 1.0, 1.0
+    positions: dict[str, dict] = {}
+    curve, invested_share = [], []
+    results_r, results_ret = [], []
+    for day in days:
+        new_today = 0
+        lo, hi = day_slices.get(day, (0, 0))
+        for k in range(lo, hi):
+            if len(positions) >= MAX_OPEN or new_today >= MAX_NEW_PER_DAY:
+                break
+            symbol = t_sym[k]
+            if symbol in positions:
+                continue
+            notional = min(equity * RISK_PCT / t_stop[k], equity * MAX_POSITION_PCT / 100, cash)
+            if notional < equity * 0.02:
+                continue
+            cash -= notional
+            positions[symbol] = {"shares": notional / (t_fill[k] * (1 + c)), "exit_date": t_exit_date[k],
+                                 "exit_raw": t_exit_raw[k], "last": t_fill[k], "r": t_r[k], "ret": t_ret[k]}
+            new_today += 1
+        for symbol in [s for s, p in positions.items() if p["exit_date"] <= day]:
+            p = positions.pop(symbol)
+            cash += p["shares"] * p["exit_raw"] * (1 - c)
+            results_r.append(p["r"])
+            results_ret.append(p["ret"])
+        market_value = 0.0
+        for symbol, p in positions.items():
+            p["last"] = prices.close(symbol, day, p["last"])
+            market_value += p["shares"] * p["last"]
+        equity = cash + market_value
+        curve.append(equity)
+        invested_share.append(market_value / equity if equity > 0 else 0.0)
+    for p in positions.values():  # still open at the end: marked at their last close
+        results_r.append(p["r"])
+        results_ret.append(p["ret"])
+    return _curve_stats(np.array(curve), len(days), results_r, results_ret, float(np.mean(invested_share)))
+
+
+def _curve_stats(curve: np.ndarray, n_days: int, results_r, results_ret, exposure: float | None) -> dict:
+    years = n_days / 252.0
+    daily = np.diff(curve) / curve[:-1]
+    dd = float((curve / np.maximum.accumulate(curve) - 1).min())
+    vol = float(daily.std(ddof=1) * math.sqrt(252)) if len(daily) > 1 else float("nan")
+    stats = {
+        "cagr_pct": round((curve[-1] ** (1 / years) - 1) * 100, 2) if curve[-1] > 0 else -100.0,
+        "max_drawdown_pct": round(dd * 100, 1),
+        "vol_pct": round(vol * 100, 1),
+        "sharpe": round(float(daily.mean() / daily.std(ddof=1) * math.sqrt(252)), 2) if len(daily) > 1 and daily.std() > 0 else None,
+        "years": round(years, 1),
+    }
+    if results_r is not None:
+        stats.update({
+            "trades": len(results_r),
+            "trades_per_year": round(len(results_r) / years, 1),
+            "win_rate": round(float(np.mean(np.array(results_ret) > 0)), 3) if results_ret else None,
+            "avg_r": round(float(np.nanmean(results_r)), 3) if results_r else None,
+            "exposure_pct": round(exposure * 100, 0),
+        })
+    return stats
+
+
+def benchmark(closes: pd.Series, start: str | None = None, end: str | None = None) -> dict:
+    c = closes[(closes.index >= (start or "")) & ((closes.index < end) if end else True)]
+    return _curve_stats(c.to_numpy(dtype=float) / float(c.iloc[0]), len(c), None, None, None)
+
+
+def portfolio_results(rows: pd.DataFrame, spy_closes: pd.Series, prices: PriceBook, splits: SplitDates,
+                      rs_col: str, cost_bps: float, exit_kind: str = "fixed", random_runs: int = RANDOM_RUNS) -> list[dict]:
+    first = str(rows["entry_date"].min())
+    calendar = [d for d in spy_closes.index if d >= first]
+    rng = np.random.default_rng(7)
+    rows = with_costs(rows[rows["exit"] == exit_kind], cost_bps).assign(rand=lambda d: rng.random(len(d)))
+    out = []
+    for label, group, params, rank in PORTFOLIO_CONFIGS:
+        eligible = select_group(rows, group)
+        eligible = eligible[policy_mask(eligible, *params, rs_col=rs_col)]
+        if rank == "rs":
+            eligible = eligible.assign(rs=eligible[rs_col])
+        full = simulate_portfolio(eligible, rank, calendar, prices, cost_bps)
+        entry = {
+            "label": label, "group": group, "policy": research_policy_name(*params), "rank": rank,
+            "full": full,
+            "train_val": simulate_portfolio(eligible, rank, calendar, prices, cost_bps, end=splits.oos_start),
+            "oos": simulate_portfolio(eligible, rank, calendar, prices, cost_bps, start=splits.oos_start),
+        }
+        if rank != "rand" and random_runs and full.get("trades"):
+            sims = [simulate_portfolio(eligible, rank, calendar, prices, cost_bps, rng=np.random.default_rng(100 + k))
+                    for k in range(random_runs)]
+            random_cagr = np.array([s["cagr_pct"] for s in sims if s.get("trades")])
+            entry["random_rank_median_cagr"] = round(float(np.median(random_cagr)), 2)
+            entry["rank_percentile"] = round(float((random_cagr < full["cagr_pct"]).mean()), 2)
+        out.append(entry)
+    return out
+
+
+def _fmt(value, spec: str, missing: str = "—") -> str:
+    return missing if value is None or (isinstance(value, float) and math.isnan(value)) else format(value, spec)
+
+
+def to_markdown(results: dict) -> str:
+    meta, splits = results["meta"], results["splits"]
     lines = [
         "# Strategy research",
         "",
-        f"Universe: {meta['symbols_ok']} symbols with data ({meta['symbols_failed']} failed), {meta['years']} years of daily bars, "
-        f"costs {settings.fee_bps:g}+{settings.slippage_bps:g} bps per side. Gap-invalidated setups skipped: {meta['gap_skipped']}. "
-        f"Validation from {results['splits']['validation_start']}, out-of-sample (OOS) from {results['splits']['oos_start']}.",
+        f"{meta['symbols_ok']} symbols with data ({meta['symbols_failed']} failed), {meta['years']} years of daily bars. "
+        f"Control group: {meta['largecap_symbols']} stocks that were already large caps in 2015. "
+        f"Primary cost {COST_BPS_PRIMARY:g} bps per side (Swedish retail: courtage + FX + slippage). "
+        f"Validation from {splits['validation_start']}, out-of-sample (OOS) from {splits['oos_start']}. "
+        f"Setups invalidated at the next open (skipped): {meta['gap_skipped']}.",
         "",
-        "## Portfolio simulation (max 8 open, max 3 new/day, 1% risk per trade, no leverage)",
-        "",
-        f"SPY buy-and-hold: {spy['cagr_pct']:+.1f}%/yr, max drawdown {spy['max_drawdown_pct']:.0f}% · "
-        f"OOS: {spy_oos['cagr_pct']:+.1f}%/yr, max DD {spy_oos['max_drawdown_pct']:.0f}%",
-        "",
-        "| rule set | exit | trades/yr | win% | avgR | CAGR | max DD* | OOS CAGR | OOS max DD* |",
-        "|---|---|---|---|---|---|---|---|---|",
+        f"Portfolio: max {MAX_OPEN} positions, max {MAX_NEW_PER_DAY} new per day, {RISK_PCT:g}% risk per trade, "
+        f"max {MAX_POSITION_PCT:g}% of equity per position, no leverage, marked to market daily. "
+        f"'vs random' = share of {meta['random_runs']} random-order portfolios from the same eligible trades that this ranking beat.",
     ]
-    for c in p["configs"]:
-        f, o = c["full"], c["oos"]
-        if not f.get("trades"):
-            continue
-        lines.append(
-            f"| {c['label']} | {c['exit']} | {f['trades_per_year']} | {f['win_rate'] * 100:.0f} | {f['avg_r']:+.2f} | "
-            f"{f['cagr_pct']:+.1f}% | {f['max_drawdown_pct_realized']:.0f}% | "
-            + (f"{o['cagr_pct']:+.1f}% | {o['max_drawdown_pct_realized']:.0f}% |" if o.get("trades") else "— | — |")
-        )
-    lines += ["", "*Drawdown measured on realized equity (at exits), so it understates intra-trade drawdown.", "",
-              "## Per-trade results (one position per symbol)", "",
-              "| group | exit | policy | n | win% | avgR | t | PF | ≥+50% | OOS n | OOS avgR | OOS PF |",
-              "|---|---|---|---|---|---|---|---|---|---|---|---|"]
-    for row in results["policies"]:
-        o, oos = row["overall"], row["out_of_sample"]
-        lines.append(
-            f"| {row['group']} | {row['exit']} | {row['policy']} | {o['n']} | {o['win_rate'] * 100:.0f} | {o['avg_r']:+.3f} | "
-            f"{o['t_stat_r']} | {o['profit_factor']} | {o['big_winners_pct'] * 100:.1f}% | {oos.get('n', 0)} | "
-            f"{_cell(oos, 'avg_r', '+.3f')} | {_cell(oos, 'profit_factor', '.2f')} |"
-        )
-    lines += ["", "## Score buckets (fixed exit, every candidate, no position lock)", "", "| strategy | score | n | avgR |", "|---|---|---|---|"]
-    for b in results["score_buckets_unlocked"]:
-        lines.append(f"| {b['strategy']} | {b['bucket']} | {b['n']} | {b['avg_r']:+.3f} |")
+    for universe in ("all", "largecap_2015"):
+        u = results["universes"][universe]
+        spy, spy_oos, spy_tv = u["spy"], u["spy_oos"], u["spy_train_val"]
+        lines += [
+            "",
+            f"## Portfolio — universe: {universe}",
+            "",
+            f"SPY buy-and-hold: {spy['cagr_pct']:+.1f}%/yr, max DD {spy['max_drawdown_pct']:.0f}%, Sharpe {spy['sharpe']} · "
+            f"train+val Sharpe {spy_tv['sharpe']} · OOS {spy_oos['cagr_pct']:+.1f}%/yr, Sharpe {spy_oos['sharpe']}",
+            "",
+            "| rule set | trades/yr | exposure | win% | avgR | CAGR | max DD | Sharpe | train+val Sharpe | OOS CAGR | OOS Sharpe | vs random |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        ]
+        for c in u["portfolio"]:
+            f, tv, o = c["full"], c["train_val"], c["oos"]
+            if not f.get("trades"):
+                lines.append(f"| {c['label']} | 0 | | | | | | | | | | |")
+                continue
+            lines.append(
+                f"| {c['label']} | {f['trades_per_year']} | {f['exposure_pct']:.0f}% | {f['win_rate'] * 100:.0f} | {f['avg_r']:+.2f} | "
+                f"{f['cagr_pct']:+.1f}% | {f['max_drawdown_pct']:.0f}% | {_fmt(f['sharpe'], '.2f')} | {_fmt(tv.get('sharpe'), '.2f')} | "
+                f"{_fmt(o.get('cagr_pct'), '+.1f')}% | {_fmt(o.get('sharpe'), '.2f')} | {_fmt(c.get('rank_percentile'), '.0%')} |"
+            )
+        lines += ["", "Cost sensitivity (full-period CAGR / Sharpe):", "",
+                  "| rule set | " + " | ".join(f"{b:g} bps" for b in COST_BPS_GRID) + " |",
+                  "|---|" + "---|" * len(COST_BPS_GRID)]
+        for label, by_cost in u["cost_sensitivity"].items():
+            lines.append(f"| {label} | " + " | ".join(
+                f"{_fmt(s.get('cagr_pct'), '+.1f')}% / {_fmt(s.get('sharpe'), '.2f')}" for s in by_cost) + " |")
+        lines += ["", "Exit variant (stop 2.5 x ATR instead of 1.5 x ATR / structural):", "",
+                  "| rule set | CAGR | max DD | Sharpe | OOS Sharpe |", "|---|---|---|---|---|"]
+        for c in u["portfolio_wide"]:
+            f, o = c["full"], c["oos"]
+            if f.get("trades"):
+                lines.append(f"| {c['label']} | {f['cagr_pct']:+.1f}% | {f['max_drawdown_pct']:.0f}% | {_fmt(f['sharpe'], '.2f')} | {_fmt(o.get('sharpe'), '.2f')} |")
+        lines += ["", f"### Per trade — universe: {universe} (one position per symbol, t over monthly means)", "",
+                  "| group | exit | policy | n | win% | avgR | medR | t | excess vs random (t) | ≥+50% | OOS n | OOS avgR |",
+                  "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+        for row in u["per_trade"]:
+            o, oos, ex = row["overall"], row["out_of_sample"], row["excess_vs_random"] or {}
+            lines.append(
+                f"| {row['group']} | {row['exit']} | {row['policy']} | {o['n']} | {o['win_rate'] * 100:.0f} | {o['avg_r']:+.3f} | "
+                f"{o['median_r']:+.2f} | {_fmt(o['t_month'], '.2f')} | "
+                f"{_fmt(ex.get('avg_excess_r'), '+.3f')} ({_fmt(ex.get('t_month'), '.2f')}) | {o['big_winners_pct'] * 100:.1f}% | "
+                f"{oos.get('n', 0)} | {_fmt(oos.get('avg_r'), '+.3f')} |"
+            )
+    lines += ["", "## Mean R by year (all universe, fixed exit)", ""]
+    years = sorted({y for row in results["universes"]["all"]["per_trade"] for y in row["avg_r_by_year"]})
+    lines += ["| group | policy | " + " | ".join(years) + " |", "|---|---|" + "---|" * len(years)]
+    for row in results["universes"]["all"]["per_trade"]:
+        if row["exit"] == "fixed" and row["group"] in ("combined", "baseline_random"):
+            lines.append(f"| {row['group']} | {row['policy']} | " + " | ".join(
+                _fmt(row["avg_r_by_year"].get(y), '+.2f') for y in years) + " |")
     return "\n".join(lines)
 
 
-def run_research(symbols: list[str], years: int = 10, out_dir: str | Path = "research_output") -> dict:
+def run_research(symbols: list[str], years: int = 10, out_dir: str | Path = "research_output", random_runs: int = RANDOM_RUNS) -> dict:
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     limit = 252 * years
-    symbols = [s.upper() for s in symbols if s.upper() != ANCHOR_SYMBOL]
+    symbols = [s.upper() for s in dict.fromkeys(symbols) if s.upper() != ANCHOR_SYMBOL]
 
     with StockClient() as client:
         client.prefetch(sorted(set(symbols + [ANCHOR_SYMBOL])), "1d", limit=limit)
         spy = enrich(client.get_klines(ANCHOR_SYMBOL, "1d", limit=limit))
         market = market_context(spy)
+        spy_closes = pd.Series(spy["close"].to_numpy(dtype=float), index=_session_dates(spy))
 
         all_rows: list[dict] = []
         returns: dict[str, pd.Series] = {}
+        closes: dict[str, pd.Series] = {}
         failed: dict[str, str] = {}
         gap_skipped = 0
         for n, symbol in enumerate(symbols, 1):
@@ -477,20 +559,56 @@ def run_research(symbols: list[str], years: int = 10, out_dir: str | Path = "res
             if len(df) < WARMUP_BARS + 50:
                 failed[symbol] = f"only {len(df)} bars"
                 continue
-            rows, skipped, ret_6m = symbol_trades(symbol, enrich(df), market)
+            rows, skipped, ret_6m = symbol_rows(symbol, enrich(df), market)
             all_rows.extend(rows)
             returns[symbol] = ret_6m
+            closes[symbol] = pd.Series(df["close"].to_numpy(dtype=float), index=_session_dates(df))
             gap_skipped += skipped
             if n % 25 == 0:
                 logger.info("research: %d/%d symbols done, %d candidate rows so far", n, len(symbols), len(all_rows))
 
-    frame = attach_relative_strength(pd.DataFrame(all_rows), returns)
-    frame.to_csv(out / "candidate_trades.csv.gz", index=False)
-    results = evaluate(frame)
-    results["portfolio"] = portfolio_results(frame, spy, results["splits"])
-    meta = {"symbols_ok": len(symbols) - len(failed), "symbols_failed": len(failed), "failed": failed,
-            "years": years, "gap_skipped": gap_skipped, "candidates": int((frame["exit"] == "fixed").sum())}
-    results["meta"] = meta
+    largecap = [s for s in LARGECAP_2015 if s in returns]
+    frame = attach_relative_strength(pd.DataFrame(all_rows), returns, "rs")
+    frame = attach_relative_strength(frame, {s: returns[s] for s in largecap}, "rs_largecap")
+    frame["largecap"] = frame["symbol"].isin(largecap)
+    frame.to_csv(out / "candidate_rows.csv.gz", index=False)
+
+    splits = split_dates(frame)
+    prices = PriceBook(closes)
+    results = {"splits": splits.__dict__, "universes": {}}
+    for universe, subset, rs_col in (("all", frame, "rs"), ("largecap_2015", frame[frame["largecap"]], "rs_largecap")):
+        primary = with_costs(subset, COST_BPS_PRIMARY)
+        portfolio = portfolio_results(subset, spy_closes, prices, splits, rs_col, COST_BPS_PRIMARY, "fixed", random_runs)
+        sensitivity = {}
+        for label, group, params, rank in PORTFOLIO_CONFIGS:
+            if rank == "rand":
+                continue
+            by_cost = []
+            for bps in COST_BPS_GRID:
+                eligible = select_group(with_costs(subset[subset["exit"] == "fixed"], bps), group)
+                eligible = eligible[policy_mask(eligible, *params, rs_col=rs_col)]
+                if rank == "rs":
+                    eligible = eligible.assign(rs=eligible[rs_col])
+                first = str(subset["entry_date"].min())
+                by_cost.append(simulate_portfolio(eligible, rank, [d for d in spy_closes.index if d >= first], prices, bps))
+            sensitivity[label] = by_cost
+        results["universes"][universe] = {
+            "spy": benchmark(spy_closes, str(subset["entry_date"].min())),
+            "spy_train_val": benchmark(spy_closes, str(subset["entry_date"].min()), splits.oos_start),
+            "spy_oos": benchmark(spy_closes, splits.oos_start),
+            "portfolio": portfolio,
+            "portfolio_wide": portfolio_results(subset, spy_closes, prices, splits, rs_col, COST_BPS_PRIMARY, "wide", 0),
+            "cost_sensitivity": sensitivity,
+            "per_trade": evaluate_trades(primary, splits, rs_col),
+        }
+
+    results["meta"] = {
+        "symbols_ok": len(returns), "symbols_failed": len(failed), "failed": failed, "years": years,
+        "largecap_symbols": len(largecap), "gap_skipped": gap_skipped,
+        "candidates": int((frame["exit"] == "fixed").sum()), "cost_bps_primary": COST_BPS_PRIMARY, "random_runs": random_runs,
+    }
+    # Backwards-compatible flat list the live policy reads its evidence from.
+    results["policies"] = results["universes"]["all"]["per_trade"]
     (out / "evidence.json").write_text(json.dumps(results, indent=2, default=str))
-    (out / "research.md").write_text(to_markdown(results, meta))
+    (out / "research.md").write_text(to_markdown(results))
     return results
