@@ -31,6 +31,8 @@ STRATEGIES = (breakout, momentum, reversal)
 # proxy for broad risk appetite, same role BTC played for the crypto
 # version of this scanner.
 ANCHOR_SYMBOL = "SPY"
+RS_LOOKBACK = 126      # ~6 months — same definitions as app.research
+HIGH_LOOKBACK = 252    # ~52 weeks
 
 
 @dataclass
@@ -94,6 +96,25 @@ def scan_symbol(client: StockClient, symbol: str, interval: str) -> tuple[pd.Dat
     return enrich(raw), None
 
 
+def six_month_return(df: pd.DataFrame) -> float | None:
+    if len(df) <= RS_LOOKBACK:
+        return None
+    value = float(df["close"].iloc[-1] / df["close"].iloc[-1 - RS_LOOKBACK] - 1)
+    return value if pd.notna(value) else None
+
+
+def near_52w_high(df: pd.DataFrame) -> float | None:
+    high = df["high"].rolling(HIGH_LOOKBACK, min_periods=RS_LOOKBACK).max().iloc[-1]
+    return float(df["close"].iloc[-1] / high) if pd.notna(high) and high > 0 else None
+
+
+def relative_strength(returns: dict[str, float]) -> dict[str, float]:
+    """Cross-sectional percentile (0-1, 1 = strongest) of 6-month returns."""
+    if not returns:
+        return {}
+    return pd.Series(returns, dtype=float).rank(pct=True).to_dict()
+
+
 def _above_sma200(df: pd.DataFrame) -> bool:
     row = df.iloc[-1]
     return bool(pd.notna(row.get("sma_200")) and float(row["close"]) > float(row["sma_200"]))
@@ -132,6 +153,7 @@ def run_scan(
     market_wide_risk = market_wide_risk_regime(anchor_snapshot)
     spy_above_200 = _above_sma200(anchor_df) if anchor_df is not None else None
 
+    returns_6m: dict[str, float] = {}
     for symbol in symbols_to_scan:
         if symbol == ANCHOR_SYMBOL:
             continue
@@ -139,6 +161,9 @@ def run_scan(
         if error is not None or df is None:
             skipped.append(SkippedSymbol(symbol=symbol, reason=error or "unknown error"))
             continue
+        ret_6m = six_month_return(df)
+        if ret_6m is not None:
+            returns_6m[symbol] = ret_6m
 
         snapshot = latest_snapshot(df)
         if snapshot is None:
@@ -170,6 +195,7 @@ def run_scan(
             "spy_above_200": spy_above_200,
             "last_close": float(df["close"].iloc[-1]),
             "atr_pct": round(float(df["atr_14"].iloc[-1] / df["close"].iloc[-1] * 100), 2),
+            "near_high": near_52w_high(df),
         }
         # Additive only — no warning never means "confirmed no earnings".
         if best_signal.direction == "LONG":
@@ -181,6 +207,9 @@ def run_scan(
 
         signals.append(best_signal)
 
+    rs = relative_strength(returns_6m)
+    for signal in signals:
+        signal.context["rs"] = rs.get(signal.symbol)
     signals.sort(key=lambda s: s.score, reverse=True)
 
     return ScanResult(

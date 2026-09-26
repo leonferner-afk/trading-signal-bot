@@ -23,8 +23,12 @@ class PositionSize:
 
 
 def compute_position_size(
-    entry: float, stop: float, portfolio_size_usd: float, risk_per_trade_pct: float
+    entry: float, stop: float, portfolio_size_usd: float, risk_per_trade_pct: float,
+    max_position_pct: float = 100.0, available_usd: float | None = None,
 ) -> PositionSize:
+    """`max_position_pct` caps one position's share of the portfolio;
+    `available_usd` (free capital not tied up in open positions) caps it
+    further — the risk budget is then simply not fully used."""
     risk_distance_pct = abs(entry - stop) / entry
     risk_amount_usd = portfolio_size_usd * (risk_per_trade_pct / 100.0)
 
@@ -35,7 +39,10 @@ def compute_position_size(
     position_size_usd = risk_amount_usd / risk_distance_pct
     # Never suggest risking more notional than the whole portfolio, even
     # if a very tight stop would otherwise imply a leveraged position size.
-    position_size_usd = min(position_size_usd, portfolio_size_usd)
+    position_size_usd = min(position_size_usd, portfolio_size_usd * min(max_position_pct, 100.0) / 100.0)
+    if available_usd is not None:
+        position_size_usd = max(0.0, min(position_size_usd, available_usd))
+    risk_amount_usd = position_size_usd * risk_distance_pct
     units = position_size_usd / entry
 
     return PositionSize(

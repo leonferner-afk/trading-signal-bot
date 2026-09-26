@@ -60,6 +60,20 @@ class SignalRecord(Base):
     r_multiple: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
+class BotRun(Base):
+    """One row per daily run that processed a NEW market session — lets the
+    next run recognise "no new trading day since last time" (US holiday,
+    manual re-run) and not re-issue signals from the same bar."""
+
+    __tablename__ = "bot_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ran_at: Mapped[dt.datetime] = mapped_column(DateTime, default=lambda: dt.datetime.now(dt.timezone.utc))
+    session_date: Mapped[str] = mapped_column(String, index=True)  # YYYY-MM-DD, New York
+    buys: Mapped[int] = mapped_column(Integer, default=0)
+    exits: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class BacktestRun(Base):
     __tablename__ = "backtest_runs"
 

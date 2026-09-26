@@ -37,17 +37,32 @@ def _bars_after_signal(client: StockClient, record: SignalRecord) -> tuple[pd.Da
     return df, df[df["close_time"] > _parse_timestamp(record.timestamp)]
 
 
+def price_adjustment(df: pd.DataFrame, record: SignalRecord) -> float:
+    """Factor by which the data provider has re-based this stock's history
+    since the signal (splits; dividend adjustments are tiny): the signal
+    bar's close in today's data divided by the entry close we stored. The
+    stored stop/target are multiplied by it, so a 10:1 split doesn't read
+    as a stop hit. 1.0 when the signal bar can't be found."""
+    bar = df[df["close_time"] <= _parse_timestamp(record.timestamp)]
+    if bar.empty or not record.entry:
+        return 1.0
+    factor = float(bar["close"].iloc[-1]) / float(record.entry)
+    return factor if factor > 0 and abs(factor - 1) > 1e-4 else 1.0
+
+
 def evaluate_open_signal(client: StockClient, record: SignalRecord, max_holding_bars: int = MAX_HOLDING_BARS_DEFAULT) -> dict | None:
     """Update dict if the position resolved (or never filled), else None
     (still open, or data unavailable)."""
     bars = _bars_after_signal(client, record)
     if bars is None or bars[1].empty:
         return None
-    after = bars[1]
+    df, after = bars
+    k = price_adjustment(df, record)
+    entry, stop, target = record.entry * k, record.stop * k, record.target * k
 
     opens, highs, lows, closes = (after[c].to_numpy(dtype=float) for c in ("open", "high", "low", "close"))
     fill = float(opens[0])
-    exit_ = resolve_exit(opens, highs, lows, closes, 0, record.direction, record.stop, record.target, max_holding_bars)
+    exit_ = resolve_exit(opens, highs, lows, closes, 0, record.direction, stop, target, max_holding_bars)
 
     if exit_ is None:
         return {
@@ -60,7 +75,7 @@ def evaluate_open_signal(client: StockClient, record: SignalRecord, max_holding_
         return None
 
     ret = net_return_pct(fill, exit_.raw_price, record.direction, settings.fee_bps, settings.slippage_bps)
-    planned_risk = abs(record.entry - record.stop)
+    planned_risk = abs(entry - stop)
     fill_with_costs = fill * (1 + (settings.fee_bps + settings.slippage_bps) / 10000.0)
     closed_at = after["close_time"].iloc[exit_.index]
     return {

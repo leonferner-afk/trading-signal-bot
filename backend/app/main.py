@@ -179,7 +179,7 @@ def scan() -> dict:
                 "breakdown": s.breakdown.__dict__,
                 "warning": s.warning,
                 "historical_probability": historical_probability_for(s.symbol, s.strategy),
-                "position_size": asdict(compute_position_size(s.entry, s.stop, live.portfolio_size_usd, live.risk_per_trade_pct))
+                "position_size": asdict(compute_position_size(s.entry, s.stop, live.portfolio_size_usd, live.risk_per_trade_pct, settings.max_position_pct))
                 if s.direction == "LONG" else None,
             }
             for s in result.signals

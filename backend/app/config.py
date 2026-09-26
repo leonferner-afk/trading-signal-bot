@@ -22,9 +22,11 @@ def _env(name: str, default: str) -> str:
 
 
 def _default_universe() -> tuple[str, ...]:
-    from app.universe import default_universe
+    # Same list the research ranks relative strength over, so a live
+    # "top 20% RS" means exactly what it meant in the backtest.
+    from app.universe import research_universe
 
-    return default_universe()
+    return research_universe()
 
 
 @dataclass(frozen=True)
@@ -64,8 +66,11 @@ class Settings:
 
     # Costs applied in every backtest/paper trade — a strategy that is only
     # profitable before these is not profitable.
-    fee_bps: float = float(_env("FEE_BPS", "10"))          # 0.10% per fill (taker)
-    slippage_bps: float = float(_env("SLIPPAGE_BPS", "5"))  # 0.05% per fill
+    # Defaults model a Swedish retail account buying US stocks: ~0.10-0.15%
+    # courtage + ~0.25% currency conversion per side, plus slippage — the
+    # same 40 bps per side the research uses as its primary cost level.
+    fee_bps: float = float(_env("FEE_BPS", "35"))
+    slippage_bps: float = float(_env("SLIPPAGE_BPS", "5"))
 
     # No stock news/catalyst provider is wired up yet — see
     # app/data/news_client.py for the (provider-agnostic) scoring logic
@@ -123,6 +128,9 @@ class Settings:
     # than this many new ones on a single day — the best-scoring go first.
     max_open_positions: int = int(_env("MAX_OPEN_POSITIONS", "8"))
     max_new_buys_per_day: int = int(_env("MAX_NEW_BUYS_PER_DAY", "3"))
+    # No single position larger than this share of the portfolio, however
+    # tight its stop (a 1% stop at 1% risk would otherwise mean 100%).
+    max_position_pct: float = float(_env("MAX_POSITION_PCT", "25"))
 
 
 settings = Settings()

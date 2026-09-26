@@ -40,7 +40,10 @@ from app.backtest.engine import MAX_HOLDING_BARS_DEFAULT, resolve_exit
 from app.config import settings
 from app.data.news_client import NewsResult
 from app.data.stock_client import DataUnavailable, StockClient
-from app.policy import research_policy_name
+# Row filters shared with the live policy: below MIN_ATR_PCT a "mover" isn't
+# moving (e.g. a pending cash takeover); tighter stops than MIN_STOP_DIST_PCT
+# are noise and blow up position sizes.
+from app.policy import MAX_STOP_DIST_PCT, MIN_ATR_PCT, MIN_STOP_DIST_PCT, research_policy_name
 from app.regime.classifier import RISK_NEUTRAL, RISK_OFF, RISK_ON, TREND_DOWN, TREND_UP, latest_snapshot
 from app.risk.risk_reward import STOP_ATR_MULT, TARGET_ATR_MULT
 from app.scanner.scanner import ANCHOR_SYMBOL, enrich
@@ -54,9 +57,6 @@ WARMUP_BARS = 210
 BASELINE_EVERY_N_BARS = 5
 RS_LOOKBACK = 126           # ~6 months
 HIGH_LOOKBACK = 252         # ~52 weeks
-MIN_ATR_PCT = 1.0           # below this a "mover" isn't moving (e.g. a pending cash takeover)
-MIN_STOP_DIST_PCT = 0.5     # tighter stops are noise, and blow up position sizes
-MAX_STOP_DIST_PCT = 25.0
 WIDE_STOP_ATR_MULT = 2.5
 COST_BPS_PRIMARY = 40.0     # per side: ~0.15% courtage + 0.25% FX (SEK->USD), incl. slippage
 COST_BPS_GRID = (15.0, 40.0, 70.0)

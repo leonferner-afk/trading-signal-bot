@@ -31,3 +31,14 @@ def test_degenerate_zero_distance_does_not_crash():
     size = compute_position_size(entry=100, stop=100, portfolio_size_usd=1000, risk_per_trade_pct=1.0)
     assert size.position_size_usd == 0.0
     assert size.units == 0.0
+
+
+def test_position_is_capped_by_max_share_and_free_capital():
+    # 1% stop at 1% risk would be 100% of the portfolio; capped at 25%.
+    size = compute_position_size(entry=100, stop=99, portfolio_size_usd=10000, risk_per_trade_pct=1.0, max_position_pct=25)
+    assert size.position_size_usd == 2500.0
+    assert size.risk_amount_usd == 25.0  # the actual risk, smaller than the 1% budget
+    # Only $1000 free -> only $1000 position.
+    size = compute_position_size(entry=100, stop=95, portfolio_size_usd=10000, risk_per_trade_pct=1.0,
+                                 max_position_pct=25, available_usd=1000)
+    assert size.position_size_usd == 1000.0 and size.units == 10.0

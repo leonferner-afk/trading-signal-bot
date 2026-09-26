@@ -20,6 +20,11 @@ from app.strategies import breakout, momentum, reversal
 
 STRATEGY_MODULES = {"breakout": breakout, "momentum": momentum, "reversal": reversal}
 
+# Must equal app.research's row filters (asserted in tests).
+MIN_ATR_PCT = 1.0
+MIN_STOP_DIST_PCT = 0.5
+MAX_STOP_DIST_PCT = 25.0
+
 
 @dataclass(frozen=True)
 class LivePolicy:
@@ -28,6 +33,9 @@ class LivePolicy:
     min_score: float
     require_spy_above_200: bool
     require_stock_above_200: bool
+    rs_min: float = 0.0          # cross-sectional 6-month return percentile (0-1)
+    near_high_min: float = 0.0   # close / 52-week high
+    rank_by: str = "score"       # "score" or "rs": which candidates win limited slots
     exit_style: str = "fixed"
 
     def strategy_modules(self) -> list:
@@ -44,7 +52,27 @@ class LivePolicy:
             return False, "marknaden (SPY) under sitt 200-dagars snitt"
         if self.require_stock_above_200 and not signal.context.get("stock_above_200"):
             return False, "aktien under sitt 200-dagars snitt"
+        # Same preconditions every research row had to meet — the evidence
+        # says nothing about setups outside them.
+        atr_pct = signal.context.get("atr_pct")
+        if atr_pct is None or atr_pct < MIN_ATR_PCT:
+            return False, f"för låg volatilitet (ATR {atr_pct}% < {MIN_ATR_PCT:g}%)"
+        if not MIN_STOP_DIST_PCT <= signal.risk_pct <= MAX_STOP_DIST_PCT:
+            return False, f"stop-avstånd {signal.risk_pct:.1f}% utanför {MIN_STOP_DIST_PCT:g}–{MAX_STOP_DIST_PCT:g}%"
+        if self.rs_min > 0:
+            rs = signal.context.get("rs")
+            if rs is None or rs < self.rs_min:
+                return False, f"relativ styrka {'okänd' if rs is None else f'{rs * 100:.0f}%'} < topp {100 - self.rs_min * 100:.0f}%"
+        if self.near_high_min > 0:
+            near = signal.context.get("near_high")
+            if near is None or near < self.near_high_min:
+                return False, f"för långt från 52-veckorshögsta ({'okänt' if near is None else f'{near * 100:.0f}%'})"
         return True, "ok"
+
+    def rank_key(self, signal: Signal) -> float:
+        if self.rank_by == "rs":
+            return signal.context.get("rs") or 0.0
+        return signal.score
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -65,12 +93,18 @@ def active_policy() -> LivePolicy:
     min_score = float(os.getenv("POLICY_MIN_SCORE") or "70")
     spy = _env_bool("POLICY_REQUIRE_SPY_ABOVE_200", True)
     stock = _env_bool("POLICY_REQUIRE_STOCK_ABOVE_200", True)
+    rs_min = float(os.getenv("POLICY_RS_MIN") or "0")
+    near_high_min = float(os.getenv("POLICY_NEAR_HIGH_MIN") or "0")
+    rank_by = (os.getenv("POLICY_RANK_BY") or "score").strip().lower()
     return LivePolicy(
-        research_name=research_policy_name(min_score, spy, stock),
+        research_name=research_policy_name(min_score, spy, stock, rs_min, near_high_min),
         strategies=strategies,
         min_score=min_score,
         require_spy_above_200=spy,
         require_stock_above_200=stock,
+        rs_min=rs_min,
+        near_high_min=near_high_min,
+        rank_by=rank_by if rank_by in ("score", "rs") else "score",
     )
 
 

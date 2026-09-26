@@ -60,12 +60,15 @@ def _evidence_line(evidence: dict | None) -> list[str]:
     return []
 
 
-def format_entry_message(signal: Signal, historical_probability: dict | None = None) -> str:
+def format_entry_message(signal: Signal, historical_probability: dict | None = None, size=None) -> str:
+    from app.config import settings
     from app.risk.position_sizing import compute_position_size
     from app.runtime_settings import get_effective_settings
 
     live = get_effective_settings()
-    size = compute_position_size(signal.entry, signal.stop, live.portfolio_size_usd, live.risk_per_trade_pct)
+    if size is None:
+        size = compute_position_size(signal.entry, signal.stop, live.portfolio_size_usd, live.risk_per_trade_pct,
+                                     settings.max_position_pct)
     shares = int(size.units) if size.units >= 1 else round(size.units, 3)
 
     lines = [
@@ -78,7 +81,8 @@ def format_entry_message(signal: Signal, historical_probability: dict | None = N
         f"R/R: {signal.rr_ratio:.1f} · Säljs senast efter 90 handelsdagar om inget nås",
         "",
         f"Storlek: {shares} st ≈ ${size.position_size_usd:,.0f} ({size.position_pct_of_portfolio:.0f}% av portföljen) "
-        f"→ risk ${size.risk_amount_usd:,.0f} = {live.risk_per_trade_pct:g}% av ${live.portfolio_size_usd:,.0f}",
+        f"→ max förlust vid stop ≈ ${size.risk_amount_usd:,.0f} "
+        f"({size.risk_amount_usd / live.portfolio_size_usd * 100 if live.portfolio_size_usd else 0:.1f}% av ${live.portfolio_size_usd:,.0f})",
         "",
         "Varför:",
     ]
@@ -139,7 +143,7 @@ def _deliver(message: str) -> None:
             logger.warning("Failed to deliver webhook notification: %s", exc)
 
 
-def notify_entry(signal: Signal, historical_probability: dict | None = None, *, min_score: float | None = None) -> bool:
+def notify_entry(signal: Signal, historical_probability: dict | None = None, *, min_score: float | None = None, size=None) -> bool:
     """Sends "KÖP NU" for a LONG signal at/above NOTIFY_MIN_SCORE, subject
     to the quiet-hours gate. Returns True if a delivery attempt was made
     (not necessarily that it succeeded — Telegram delivery failures are
@@ -156,7 +160,7 @@ def notify_entry(signal: Signal, historical_probability: dict | None = None, *, 
         logger.info("Entry signal for %s suppressed by quiet-hours gate (still saved to journal).", signal.symbol)
         return False
 
-    _deliver(format_entry_message(signal, historical_probability))
+    _deliver(format_entry_message(signal, historical_probability, size))
     return True
 
 

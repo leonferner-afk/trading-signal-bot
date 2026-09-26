@@ -17,19 +17,22 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.config import settings
-from app.data.stock_client import StockClient
+from app.data.stock_client import DataUnavailable, StockClient
 from app.db import init_db
 from app.journal import repository as journal
 from app.notify import github_issue, telegram_client
 from app.notify.notifier import notify_entry
 from app.paper_trading.simulator import SKIPPED_GAP, current_mark, run_paper_trading_update
 from app.policy import LivePolicy, active_policy, evidence_for, load_evidence
-from app.risk.position_sizing import compute_position_size
+from app.risk.position_sizing import PositionSize, compute_position_size
 from app.runtime_settings import get_effective_settings
 from app.scanner.scanner import ANCHOR_SYMBOL, ScanResult, run_scan
 from app.scoring.score import Signal
 
 logger = logging.getLogger("tradingbot.daily")
+
+MIN_POSITION_PCT = 2.0      # smaller than this isn't worth the fixed costs
+MAX_SESSION_AGE_DAYS = 5    # latest bar older than this -> data is stale
 
 
 @dataclass
@@ -41,23 +44,58 @@ class DailyOutcome:
     issue_url: str | None = None
 
 
-def select_buys(signals: list[Signal], policy: LivePolicy, open_symbols: set[str], open_count: int) -> tuple[list[Signal], list[tuple[Signal, str]]]:
-    """Best score first; each signal either becomes a BUY or is kept on the
-    watch list with the reason it wasn't bought."""
+def select_buys(
+    signals: list[Signal],
+    policy: LivePolicy,
+    open_symbols: set[str],
+    open_count: int,
+    committed_usd: float = 0.0,
+) -> tuple[list[tuple[Signal, PositionSize]], list[tuple[Signal, str]]]:
+    """Best candidates first (by the policy's rank); each signal either
+    becomes a BUY with a concrete size, or goes on the watch list with the
+    reason it wasn't bought. Sizes respect the per-position cap and the
+    capital still free after the positions already open (`committed_usd`)."""
+    live = get_effective_settings()
+    portfolio = live.portfolio_size_usd
+    free = max(0.0, portfolio - committed_usd)
     slots = min(max(0, settings.max_open_positions - open_count), settings.max_new_buys_per_day)
-    buys: list[Signal] = []
+    buys: list[tuple[Signal, PositionSize]] = []
     watch: list[tuple[Signal, str]] = []
-    for signal in sorted(signals, key=lambda s: s.score, reverse=True):
+    for signal in sorted(signals, key=lambda s: (policy.rank_key(s), s.score), reverse=True):
         admitted, reason = policy.admits(signal)
         if not admitted:
             watch.append((signal, reason))
-        elif signal.symbol in open_symbols:
+            continue
+        if signal.symbol in open_symbols:
             watch.append((signal, "redan en öppen position i aktien"))
-        elif len(buys) >= slots:
+            continue
+        if len(buys) >= slots:
             watch.append((signal, "max antal positioner/köp per dag nått"))
-        else:
-            buys.append(signal)
+            continue
+        size = compute_position_size(signal.entry, signal.stop, portfolio, live.risk_per_trade_pct,
+                                     settings.max_position_pct, available_usd=free)
+        if size.position_size_usd < portfolio * MIN_POSITION_PCT / 100:
+            watch.append((signal, "inte tillräckligt med fritt kapital"))
+            continue
+        free -= size.position_size_usd
+        buys.append((signal, size))
     return buys, watch
+
+
+def committed_capital(open_records) -> float:
+    """Capital tied up in open positions, sized the way they were advised."""
+    live = get_effective_settings()
+    return sum(
+        compute_position_size(r.entry, r.stop, live.portfolio_size_usd, live.risk_per_trade_pct,
+                              settings.max_position_pct).position_size_usd
+        for r in open_records
+    )
+
+
+def session_date(df) -> str | None:
+    if df is None or df.empty:
+        return None
+    return df["close_time"].iloc[-1].tz_convert("America/New_York").strftime("%Y-%m-%d")
 
 
 def _fmt_money(value: float) -> str:
@@ -68,13 +106,15 @@ def build_report(
     today: str,
     scan: ScanResult,
     policy: LivePolicy,
-    buys: list[Signal],
+    buys: list[tuple[Signal, PositionSize]],
     buy_evidence: dict[str, dict | None],
     watch: list[tuple[Signal, str]],
     exits: list[dict],
     open_positions: list[tuple],
     performance: dict,
     evidence_available: bool,
+    session: str | None = None,
+    new_session: bool = True,
 ) -> str:
     live = get_effective_settings()
     market = {True: "över", False: "under", None: "okänt"}[scan.spy_above_200]
@@ -86,12 +126,15 @@ def build_report(
         f"**Portfölj:** {_fmt_money(live.portfolio_size_usd)}, risk {live.risk_per_trade_pct:g}% per affär · "
         f"{len(open_positions)}/{settings.max_open_positions} öppna positioner",
         "",
+        f"**Senaste handelsdag i datan:** {session or 'okänd'}",
+        "",
         f"## 🟢 KÖP ({len(buys)})",
     ]
-    if not buys:
+    if not new_session:
+        lines.append("Ingen ny handelsdag sedan förra körningen (helgdag eller omkörning) — inga nya signaler.")
+    elif not buys:
         lines.append("Inga nya köp idag — inget klarade kvalitetskraven. Det är ett korrekt resultat; alla dagar har inte en bra affär.")
-    for signal in buys:
-        size = compute_position_size(signal.entry, signal.stop, live.portfolio_size_usd, live.risk_per_trade_pct)
+    for signal, size in buys:
         ev = buy_evidence.get(signal.symbol)
         lines += [
             "",
@@ -100,7 +143,7 @@ def build_report(
             f"- **Stop-loss** {signal.stop:g} (−{signal.risk_pct:.1f}%) — lägg som stop-order direkt",
             f"- **Mål** {signal.target:g} (+{signal.reward_pct:.1f}%) — lägg som limit-säljorder direkt",
             f"- **Storlek** ≈ {int(size.units) if size.units >= 1 else round(size.units, 3)} st ({_fmt_money(size.position_size_usd)}, "
-            f"{size.position_pct_of_portfolio:.0f}% av portföljen) → max förlust {_fmt_money(size.risk_amount_usd)}",
+            f"{size.position_pct_of_portfolio:.0f}% av portföljen) → max förlust vid stop ≈ {_fmt_money(size.risk_amount_usd)}",
             f"- **Varför:** " + "; ".join(signal.reasons),
         ]
         if ev:
@@ -170,30 +213,49 @@ def run_daily(report_dir: str | Path = "reports") -> DailyOutcome:
     live = get_effective_settings()
     policy = active_policy()
     evidence = load_evidence()
-    today = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
+    now = dt.datetime.now(dt.timezone.utc)
+    today = now.strftime("%Y-%m-%d")
 
     client = StockClient()
     open_before = journal.get_open_signals()
     universe = [s for s in live.watchlist if s != ANCHOR_SYMBOL]
     client.prefetch(sorted(set(universe + [r.symbol for r in open_before] + [ANCHOR_SYMBOL])), "1d", limit=400)
 
+    # Which market session does today's data end on? Same session as the
+    # last processed run -> nothing new happened (US holiday, manual re-run):
+    # positions are still checked, but no new signals are issued.
+    try:
+        session = session_date(client.get_klines(ANCHOR_SYMBOL, "1d", limit=400))
+    except DataUnavailable:
+        session = None
+    last_session = journal.last_processed_session()
+    new_session = session is not None and session != last_session
+    stale = session is None or (now.date() - dt.date.fromisoformat(session)).days > MAX_SESSION_AGE_DAYS
+
     exits = run_paper_trading_update(client=client)["updated"]
-    scan = run_scan(universe, "1d", client=client, strategies=policy.strategy_modules())
-    ok = scan.spy_above_200 is not None and len(scan.skipped) < max(10, len(universe) // 2)
+    if new_session and not stale:
+        scan = run_scan(universe, "1d", client=client, strategies=policy.strategy_modules())
+    else:
+        scan = ScanResult(scanned_at=now.isoformat(), watchlist=universe, market_wide_risk="UNKNOWN", signals=[],
+                          spy_above_200=None)
+    ok = not stale and (not new_session or (scan.spy_above_200 is not None and len(scan.skipped) < max(10, len(universe) // 2)))
 
     open_now = journal.get_open_signals()
-    buys, watch = select_buys(scan.signals, policy, {r.symbol for r in open_now}, len(open_now))
+    buys, watch = select_buys(scan.signals, policy, {r.symbol for r in open_now}, len(open_now), committed_capital(open_now))
     buy_evidence: dict[str, dict | None] = {}
-    for signal in buys:
+    for signal, size in buys:
         ev = evidence_for(evidence, signal.strategy, policy)
         buy_evidence[signal.symbol] = ev
         journal.save_signal(signal, ev)
-        notify_entry(signal, ev, min_score=0)
+        notify_entry(signal, ev, min_score=0, size=size)
 
     open_positions = [(r, current_mark(client, r)) for r in journal.get_open_signals()]
     report = build_report(today, scan, policy, buys, buy_evidence, watch, exits, open_positions,
-                          journal.performance_summary(), evidence is not None)
-    if not ok:
+                          journal.performance_summary(), evidence is not None, session, new_session)
+    if stale:
+        report = (f"> ⚠ **Marknadsdatan är inaktuell** (senaste handelsdag: {session or 'saknas'}) — inga nya signaler idag. "
+                  "Kontrollera datakällan om detta upprepas.\n\n") + report
+    elif not ok:
         report = "> ⚠ **Datakvaliteten var för dålig idag** (för många aktier kunde inte hämtas) — resultatet nedan är ofullständigt.\n\n" + report
 
     out = Path(report_dir)
@@ -204,13 +266,15 @@ def run_daily(report_dir: str | Path = "reports") -> DailyOutcome:
     issue_url = None
     real_exits = [e for e in exits if e["result"] != SKIPPED_GAP]
     if buys or real_exits or not ok:
-        parts = ([f"KÖP {', '.join(s.symbol for s in buys)}"] if buys else []) + \
+        parts = ([f"KÖP {', '.join(s.symbol for s, _ in buys)}"] if buys else []) + \
                 ([f"SÄLJ {', '.join(e['symbol'] for e in real_exits)}"] if real_exits else [])
         title = f"📈 {today}: " + (" · ".join(parts) if parts else "⚠ datafel, kontrollera körningen")
         issue_url = github_issue.publish(title, report)
         if telegram_client.is_configured() and not buys and not real_exits:
             telegram_client.send_message(title)
 
-    logger.info("daily: %d buys, %d exits, %d watch, %d skipped symbols, issue=%s",
-                len(buys), len(real_exits), len(watch), len(scan.skipped), issue_url)
-    return DailyOutcome(ok=ok, report_markdown=report, buys=buys, exits=exits, issue_url=issue_url)
+    if new_session and ok:
+        journal.record_bot_run(session, len(buys), len(real_exits))
+    logger.info("daily: session %s (new=%s, stale=%s), %d buys, %d exits, %d watch, %d skipped symbols, issue=%s",
+                session, new_session, stale, len(buys), len(real_exits), len(watch), len(scan.skipped), issue_url)
+    return DailyOutcome(ok=ok, report_markdown=report, buys=[s for s, _ in buys], exits=exits, issue_url=issue_url)

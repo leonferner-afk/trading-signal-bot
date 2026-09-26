@@ -9,7 +9,7 @@ import json
 
 from sqlalchemy import select
 
-from app.db import BacktestRun, SignalRecord, get_session
+from app.db import BacktestRun, BotRun, SignalRecord, get_session
 from app.scoring.score import Signal
 
 
@@ -265,3 +265,15 @@ def equity_curve() -> list[dict]:
             }
         )
     return points
+
+
+def last_processed_session() -> str | None:
+    with get_session() as session:
+        row = session.execute(select(BotRun).order_by(BotRun.session_date.desc()).limit(1)).scalar_one_or_none()
+        return row.session_date if row else None
+
+
+def record_bot_run(session_date: str, buys: int, exits: int) -> None:
+    with get_session() as session:
+        session.add(BotRun(session_date=session_date, buys=buys, exits=exits))
+        session.commit()

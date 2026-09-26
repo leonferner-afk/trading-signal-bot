@@ -45,6 +45,7 @@ jobs:
           RISK_PER_TRADE_PCT: ${{ vars.RISK_PER_TRADE_PCT }}
           MAX_OPEN_POSITIONS: ${{ vars.MAX_OPEN_POSITIONS }}
           MAX_NEW_BUYS_PER_DAY: ${{ vars.MAX_NEW_BUYS_PER_DAY }}
+          MAX_POSITION_PCT: ${{ vars.MAX_POSITION_PCT }}
         run: python -m app.cli daily --report-dir "$GITHUB_WORKSPACE/state/reports"
       - name: Save journal and reports
         if: always()
@@ -55,3 +56,16 @@ jobs:
           git add -A
           git diff --cached --quiet || git commit -q -m "Daily run $(date -u +%F)"
           git push -q origin HEAD:bot-state
+      - name: Alert if the run crashed
+        # The bot reports data problems itself; this catches a crash before
+        # any report was written, so a silent day never looks like "no trades".
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -f "state/reports/$(date -u +%F).md" ]; then exit 0; fi
+          title="⚠ Tradingbot $(date -u +%F): körningen kraschade — inga signaler idag"
+          body="Den dagliga körningen avbröts innan någon rapport skrevs. Öppna positioner bevakas igen vid nästa körning. Logg: $RUN_URL"
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body" --assignee "$GITHUB_REPOSITORY_OWNER" \
+            || gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"

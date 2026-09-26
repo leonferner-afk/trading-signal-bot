@@ -154,7 +154,9 @@ class StockClient:
         for any symbol the batch didn't cover — those fall back to a
         per-symbol fetch when requested, so a partial batch is never fatal."""
         period = _period_for(interval, limit)
-        wanted = sorted({s.upper() for s in symbols})
+        # Already cached with enough history -> no second download.
+        wanted = sorted(s for s in {s.upper() for s in symbols}
+                        if not (self._cache.get((s, interval)) and self._cache[(s, interval)][0] >= _period_years(period)))
         missing: dict[str, str] = {}
         for start in range(0, len(wanted), _BATCH_SIZE):
             chunk = wanted[start:start + _BATCH_SIZE]
