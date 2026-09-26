@@ -271,6 +271,10 @@ def _data_warning(stale: bool, ok: bool, session: str | None) -> str:
     return ""
 
 
+def _rocket_closed_headline(closed: list[dict]) -> str:
+    return "🚀 avslutad (papper) " + ", ".join(f"{e['symbol']} {e['return_pct']:+.0f}%" for e in closed)
+
+
 def rockets_mode() -> str:
     """'paper' (default): earnings rockets are tracked without money; 'off'."""
     return "off" if (os.getenv("ROCKETS_MODE") or "paper").strip().lower() == "off" else "paper"
@@ -323,7 +327,8 @@ def _run_rotation(report_dir, today, client, universe, spy, session, new_session
     stops = [e for e in day.closed if e["result"] not in (SKIPPED_GAP, ROTATION_EXIT)]
     sold = [r.symbol for r, _, _ in day.sells] + [e["symbol"] for e in stops]
     parts = ([f"KÖP {', '.join(s for s, _ in day.buys)}"] if day.buys else []) + ([f"SÄLJ {', '.join(sold)}"] if sold else []) \
-        + ([f"🚀 RAKET (papper) {', '.join(rockets)}"] if rockets else [])
+        + ([f"🚀 RAKET (papper) {', '.join(rockets)}"] if rockets else []) \
+        + ([_rocket_closed_headline(rocket_closed)] if rocket_closed else [])
     issue_url = _write_and_publish(report_dir, today, report, parts, ok)
     if act and ok:
         journal.record_bot_run(session, len(day.buys), len(day.sells))

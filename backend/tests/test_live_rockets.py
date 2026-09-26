@@ -76,3 +76,10 @@ def test_detects_earnings_rocket_follows_it_on_paper_and_keeps_it_separate(clean
     assert any(m.startswith("🚀 RAKET (papper) avslutad — RKT") for m in delivered)
     assert journal.rocket_paper_summary()["n"] == 1
     assert journal.performance_summary()["closed_total"] == 0   # paper never counts as a real result
+
+
+def test_closed_paper_rocket_gets_its_own_headline():
+    from app.daily import _rocket_closed_headline
+
+    assert _rocket_closed_headline([{"symbol": "RKT", "return_pct": 12.4}, {"symbol": "ABC", "return_pct": -8.0}]) == \
+        "🚀 avslutad (papper) RKT +12%, ABC -8%"
