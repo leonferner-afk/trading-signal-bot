@@ -168,7 +168,9 @@ def performance_summary() -> dict:
     """Aggregate performance strictly from CLOSED signals — an empty
     journal returns an honest empty summary, never fabricated stats."""
     with get_session() as session:
-        stmt = select(SignalRecord).where(SignalRecord.result.notin_(("OPEN", "SKIPPED_GAP"))).order_by(SignalRecord.closed_at)
+        # Paper-only rockets are reported separately, never mixed into real results.
+        stmt = (select(SignalRecord).where(SignalRecord.result.notin_(("OPEN", "SKIPPED_GAP")),
+                                           SignalRecord.strategy != "rocket_paper").order_by(SignalRecord.closed_at))
         closed = list(session.scalars(stmt))
 
     if not closed:
@@ -246,7 +248,9 @@ def equity_curve() -> list[dict]:
     over time so the dashboard can show whether the edge is actually
     holding, not just an aggregate number. Empty until signals have closed."""
     with get_session() as session:
-        stmt = select(SignalRecord).where(SignalRecord.result.notin_(("OPEN", "SKIPPED_GAP"))).order_by(SignalRecord.closed_at)
+        # Paper-only rockets are reported separately, never mixed into real results.
+        stmt = (select(SignalRecord).where(SignalRecord.result.notin_(("OPEN", "SKIPPED_GAP")),
+                                           SignalRecord.strategy != "rocket_paper").order_by(SignalRecord.closed_at))
         closed = list(session.scalars(stmt))
 
     points = []
@@ -307,3 +311,31 @@ def mark_exit_signal(record_id: int, timestamp: str, reason: str) -> None:
             record.exit_signal_at = timestamp
             record.exit_reason = reason
             session.commit()
+
+
+ROCKET_PAPER = "rocket_paper"
+
+
+def save_rocket_paper(r: dict, evidence: dict | None) -> int:
+    """A paper-only earnings rocket (never counted as a real position)."""
+    with get_session() as session:
+        record = SignalRecord(
+            timestamp=r["timestamp"], symbol=r["symbol"], direction="LONG", strategy=ROCKET_PAPER,
+            entry=r["last_close"], target=0.0, stop=0.0, risk_pct=0.0, reward_pct=0.0, rr_ratio=0.0,
+            score=round(r["surprise_pct"], 1), tier="PAPER", market_regime="earnings rocket", market_wide_risk="UNKNOWN",
+            features_json=json.dumps(r), news_json=json.dumps({}), historical_probability_json=json.dumps(evidence or {}),
+            result="OPEN",
+        )
+        session.add(record)
+        session.commit()
+        return record.id
+
+
+def rocket_paper_summary() -> dict:
+    with get_session() as session:
+        stmt = select(SignalRecord).where(SignalRecord.strategy == ROCKET_PAPER, SignalRecord.result != "OPEN")
+        closed = [r for r in session.scalars(stmt) if r.return_pct is not None]
+    if not closed:
+        return {"n": 0}
+    rets = [r.return_pct for r in closed]
+    return {"n": len(rets), "win_rate": sum(x > 0 for x in rets) / len(rets), "avg_ret_pct": sum(rets) / len(rets)}

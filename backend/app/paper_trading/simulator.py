@@ -90,6 +90,33 @@ def _evaluate_rotation(df: pd.DataFrame, after: pd.DataFrame, record: SignalReco
     }
 
 
+def _evaluate_rocket(df: pd.DataFrame, record: SignalRecord) -> dict | None:
+    """Paper rocket: 'bought' at the open after the signal session, 'sold' at
+    the open after a close more than 25% below the highest close (or after
+    60 sessions) — app.rockets.trailing_exit, the research rule itself."""
+    from app.rockets import EARNINGS_MAX_HOLD, EARNINGS_TRAIL, trailing_exit
+
+    bars = df[df["close_time"] >= _parse_timestamp(record.timestamp)]
+    if len(bars) < 2:
+        return None
+    opens, closes = bars["open"].to_numpy(float), bars["close"].to_numpy(float)
+    ex = trailing_exit(opens, closes, 0, EARNINGS_TRAIL, EARNINGS_MAX_HOLD)
+    if ex is None:
+        return None
+    k, price, reason = ex
+    fill = float(opens[1])
+    ret = net_return_pct(fill, price, "LONG", settings.fee_bps, settings.slippage_bps)
+    closed_at = bars["close_time"].iloc[k]
+    return {
+        "result": "ROCKET_TRAIL" if reason == "trail" else "ROCKET_TIME",
+        "fill_price": round(fill, 4), "exit_price": round(price, 4), "return_pct": round(ret, 3), "r_multiple": None,
+        "max_favorable_excursion_pct": round((closes[1:k].max() / fill - 1) * 100, 3) if k > 1 else 0.0,
+        "max_adverse_excursion_pct": round((closes[1:k].min() / fill - 1) * 100, 3) if k > 1 else 0.0,
+        "holding_time_minutes": round((closed_at - _parse_timestamp(record.timestamp)).total_seconds() / 60.0, 1),
+        "holding_bars": k - 1, "closed_at": closed_at.to_pydatetime(),
+    }
+
+
 def evaluate_open_signal(client: StockClient, record: SignalRecord, max_holding_bars: int = MAX_HOLDING_BARS_DEFAULT) -> dict | None:
     """Update dict if the position resolved (or never filled), else None
     (still open, or data unavailable)."""
@@ -99,6 +126,8 @@ def evaluate_open_signal(client: StockClient, record: SignalRecord, max_holding_
     df, after = bars
     if record.strategy == "rotation":
         return _evaluate_rotation(df, after, record)
+    if record.strategy == "rocket_paper":
+        return _evaluate_rocket(df, record)
     k = price_adjustment(df, record)
     entry, stop, target = record.entry * k, record.stop * k, record.target * k
 
@@ -181,7 +210,12 @@ def run_paper_trading_update(interval: str | None = None, client: StockClient | 
         )
         # A rotation exit was already announced ("SÄLJ NU") when the bot
         # decided it; only a stop the broker executed is news now.
-        if update["result"] != SKIPPED_GAP and update["result"] != ROTATION_EXIT:
+        if record.strategy == "rocket_paper":
+            from app.live_rockets import format_rocket_close
+            from app.notify.notifier import _deliver
+
+            _deliver(format_rocket_close(record, update))
+        elif update["result"] != SKIPPED_GAP and update["result"] != ROTATION_EXIT:
             notify_exit(record, update)
         updated.append({"id": record.id, "symbol": record.symbol, "strategy": record.strategy,
                         **{k: v for k, v in update.items() if k != "closed_at"}})

@@ -150,6 +150,14 @@ förhandsbestämda krav, i jämförelse med **slumpvisa köp i samma aktier med 
 
 Ingen variant klarade alla krav, så boten skickar inga raketsignaler för riktiga pengar.
 
+**Papperstrading (pågår):** den bästa rapportraketen följs live utan pengar. Varje ny börsdag letar boten efter
+aktier som stigit ≥ 10 % på två dagar efter en rapport som slog förväntningarna, och skickar då
+**"🚀 RAKET (papper — köp inte)"**. Positionen följs som om den köptes vid öppning, med samma släpande
+stopp och tidsgräns som i testet. En avslutad raket ger en notis med resultatet. Pappersresultaten redovisas i ett eget
+avsnitt i dagsrapporten och blandas aldrig med dina riktiga resultat. Efter 3–6 månader jämförs de med
+testets +6,5 % per affär och slumpköpens +4,4 %; först då avgörs om raketerna får riktiga pengar
+(lekpotten, 5 %). Stäng av med repo-variabeln `ROCKETS_MODE=off`.
+
 ## Begränsningar — läs detta
 
 - **Historik är ingen garanti.** Strategin har haft långa perioder under index, och dess största nedgång i testet var −29 % (SPY: −34 %).

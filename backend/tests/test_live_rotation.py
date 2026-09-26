@@ -45,6 +45,7 @@ def world(monkeypatch):
     monkeypatch.setattr("app.notify.notifier.telegram_client.send_message", lambda msg: sent.append(msg) or True)
     monkeypatch.setattr(daily.github_issue, "publish", lambda title, body: sent.append(title) or "https://example/issue/1")
     monkeypatch.setenv("POLICY_MODE", "rotation")
+    monkeypatch.setenv("ROCKETS_MODE", "off")  # paper rockets have their own test
     monkeypatch.setattr(daily, "active_rotation_params",
                         lambda: RotationParams(max_positions=3, entry_rs=0.8, exit_rs=0.5, max_new_per_day=3))
     init_db()

@@ -46,6 +46,7 @@ class DailyOutcome:
     issue_url: str | None = None
     rotation_buys: list[str] = field(default_factory=list)
     rotation_sells: list[str] = field(default_factory=list)
+    rocket_paper: list[str] = field(default_factory=list)
 
 
 def select_buys(
@@ -227,7 +228,8 @@ def run_daily(report_dir: str | Path = "reports") -> DailyOutcome:
     custom_list = "watchlist_csv" in live.overridden_fields or bool(os.getenv("WATCHLIST"))
     watchlist = live.watchlist if (mode == "swing" or custom_list) else active_rotation_universe()
     universe = [s for s in watchlist if s != ANCHOR_SYMBOL]
-    client.prefetch(sorted(set(universe + [r.symbol for r in open_before] + [ANCHOR_SYMBOL])), "1d", limit=400)
+    extra = list(rocket_universe()) if mode == "rotation" and rockets_mode() == "paper" else []
+    client.prefetch(sorted(set(universe + extra + [r.symbol for r in open_before] + [ANCHOR_SYMBOL])), "1d", limit=400)
 
     # Which market session does today's data end on? Same session as the
     # last processed run -> nothing new happened (US holiday, manual re-run):
@@ -269,7 +271,36 @@ def _data_warning(stale: bool, ok: bool, session: str | None) -> str:
     return ""
 
 
+def rockets_mode() -> str:
+    """'paper' (default): earnings rockets are tracked without money; 'off'."""
+    return "off" if (os.getenv("ROCKETS_MODE") or "paper").strip().lower() == "off" else "paper"
+
+
+def rocket_universe() -> tuple[str, ...]:
+    from app.universe import research_universe
+
+    return research_universe()
+
+
+def _run_rocket_paper(client, spy, act: bool, evidence) -> tuple[object | None, list[str]]:
+    """Find today's earnings rockets and start following them on paper."""
+    from app.live_rockets import find_rockets, format_rocket_buy, rocket_evidence
+    from app.notify.notifier import _deliver
+    from app.scanner.scanner import _drop_unclosed_bar
+
+    if not act or rockets_mode() != "paper" or spy is None:
+        return None, []
+    session_close = _drop_unclosed_bar(spy, 0)["close_time"].iloc[-1]
+    day = find_rockets(client, list(rocket_universe()), session_close)
+    ev = rocket_evidence(evidence)
+    for r in day.new:
+        journal.save_rocket_paper(r, ev)
+        _deliver(format_rocket_buy(r, ev))
+    return day, [r["symbol"] for r in day.new]
+
+
 def _run_rotation(report_dir, today, client, universe, spy, session, new_session, stale, evidence, last_session=None) -> DailyOutcome:
+    from app.live_rockets import build_rocket_section, rocket_evidence
     from app.live_rotation import build_rotation_report, run_rotation_day
     from app.paper_trading.simulator import ROTATION_EXIT
 
@@ -277,20 +308,30 @@ def _run_rotation(report_dir, today, client, universe, spy, session, new_session
     act = new_session and not stale
     day = run_rotation_day(client, universe, spy, params, evidence, "UNKNOWN", act, session, last_session)
     ok = not stale and (not act or len(day.features.skipped) < max(10, len(universe) // 2))
-    open_positions = [(r, current_mark(client, r)) for r in journal.get_open_signals()]
+    rocket_day, rockets = _run_rocket_paper(client, spy, act and ok, evidence)
+    open_all = journal.get_open_signals()
+    open_positions = [(r, current_mark(client, r)) for r in open_all if r.strategy != journal.ROCKET_PAPER]
+    rocket_closed = [e for e in day.closed if e.get("strategy") == journal.ROCKET_PAPER]
+    day.closed = [e for e in day.closed if e.get("strategy") != journal.ROCKET_PAPER]
     report = build_rotation_report(today, session, new_session, params, day, open_positions,
                                    journal.performance_summary(), evidence, len(universe))
+    if rockets_mode() == "paper":
+        open_rockets = [(r, current_mark(client, r)) for r in open_all if r.strategy == journal.ROCKET_PAPER]
+        report += "\n" + "\n".join(build_rocket_section(rocket_day, open_rockets, rocket_closed,
+                                                          journal.rocket_paper_summary(), rocket_evidence(evidence)))
     report = _data_warning(stale, ok, session) + report
     stops = [e for e in day.closed if e["result"] not in (SKIPPED_GAP, ROTATION_EXIT)]
     sold = [r.symbol for r, _, _ in day.sells] + [e["symbol"] for e in stops]
-    parts = ([f"KÖP {', '.join(s for s, _ in day.buys)}"] if day.buys else []) + ([f"SÄLJ {', '.join(sold)}"] if sold else [])
+    parts = ([f"KÖP {', '.join(s for s, _ in day.buys)}"] if day.buys else []) + ([f"SÄLJ {', '.join(sold)}"] if sold else []) \
+        + ([f"🚀 RAKET (papper) {', '.join(rockets)}"] if rockets else [])
     issue_url = _write_and_publish(report_dir, today, report, parts, ok)
     if act and ok:
         journal.record_bot_run(session, len(day.buys), len(day.sells))
     logger.info("daily/rotation: session %s (new=%s, stale=%s), %d buys, %d sells, %d closed, issue=%s",
                 session, new_session, stale, len(day.buys), len(day.sells), len(day.closed), issue_url)
-    return DailyOutcome(ok=ok, report_markdown=report, buys=[], exits=day.closed, issue_url=issue_url,
-                        rotation_buys=[s for s, _ in day.buys], rotation_sells=[r.symbol for r, _, _ in day.sells])
+    return DailyOutcome(ok=ok, report_markdown=report, buys=[], exits=day.closed + rocket_closed, issue_url=issue_url,
+                        rotation_buys=[s for s, _ in day.buys], rotation_sells=[r.symbol for r, _, _ in day.sells],
+                        rocket_paper=rockets)
 
 
 def _run_swing(report_dir, today, now, client, universe, session, new_session, stale, evidence) -> DailyOutcome:
