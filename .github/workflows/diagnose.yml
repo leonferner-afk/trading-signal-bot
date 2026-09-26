@@ -26,3 +26,7 @@ jobs:
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           PYTHONPATH: .
         run: python scripts/diagnose_data.py
+      - name: Probe earnings history
+        env:
+          PYTHONPATH: .
+        run: python scripts/diagnose_earnings.py
