@@ -602,7 +602,7 @@ def rotation_results(panel: rot.Panel, splits: SplitDates, spy_closes: pd.Series
 
 
 def rocket_results(raw: dict[str, pd.DataFrame], largecap: set[str], spy_closes: pd.Series, prices: PriceBook,
-                   splits: SplitDates) -> dict:
+                   splits: SplitDates, earnings: dict[str, pd.DataFrame] | None = None) -> dict:
     """Every rocket variant: per-trade vs random entries in the same stocks,
     an equal-weight portfolio (10 slots of 10%), the 2015 large-cap control,
     a without-top-3-stocks rerun and the pre-registered gates."""
@@ -619,22 +619,16 @@ def rocket_results(raw: dict[str, pd.DataFrame], largecap: set[str], spy_closes:
         return simulate_portfolio(rows, "volume_ratio", calendar, prices, COST_BPS_PRIMARY, start, end, rng,
                                   weight=rk.WEIGHT, max_open=rk.MAX_OPEN, max_new=rk.MAX_NEW_PER_DAY)
 
-    for params in rk.GRID:
-        if params.trail not in baselines:
-            base = [r for s, df in frames.items() for r in rk.symbol_rows(s, df, dates[s], params, baseline=True)]
-            baselines[params.trail] = rk.with_costs(pd.DataFrame(base), COST_BPS_PRIMARY) if base else pd.DataFrame()
-        base = baselines[params.trail]
-        rows = [r for s, df in frames.items() for r in rk.symbol_rows(s, df, dates[s], params, baseline=False)]
+    def evaluate(name: str, param_dict: dict, rows: list[dict], base: pd.DataFrame) -> dict:
         if not rows or base.empty:
-            variants.append({"name": params.name, "trades": {"n": 0}})
-            continue
+            return {"name": name, "trades": {"n": 0}}
         t = rk.with_costs(pd.DataFrame(rows), COST_BPS_PRIMARY)
         tv, oos = t[t["date"] < splits.oos_start], t[t["date"] >= splits.oos_start]
         base_tv = base[base["date"] < splits.oos_start]
         lc, base_lc = t[t["symbol"].isin(largecap)], base[base["symbol"].isin(largecap)]
         top3 = t.groupby("symbol")["ret_pct"].sum().nlargest(3).index.tolist()
         entry = {
-            "name": params.name, "params": params.__dict__,
+            "name": name, "params": param_dict,
             "trades": rk.trade_summary(t), "trades_train_val": rk.trade_summary(tv), "trades_oos": rk.trade_summary(oos),
             "random_entries": rk.trade_summary(base),
             "excess_all": rk.monthly_excess(t, base), "excess_train_val": rk.monthly_excess(tv, base_tv),
@@ -647,7 +641,22 @@ def rocket_results(raw: dict[str, pd.DataFrame], largecap: set[str], spy_closes:
             "by_year": t.groupby(t["date"].str[:4])["ret_pct"].mean().round(2).to_dict(),
         }
         entry["gates"] = rk.rocket_gates(entry, spy["train_val"], spy["full"])
-        variants.append(entry)
+        return entry
+
+    if earnings:
+        base_e = [r for s in earnings if s in frames for r in rk.earnings_baseline_rows(s, frames[s], dates[s])]
+        base_e = rk.with_costs(pd.DataFrame(base_e), COST_BPS_PRIMARY) if base_e else pd.DataFrame()
+        for ep in rk.EARNINGS_GRID:
+            rows = [r for s, e in earnings.items() if s in frames for r in rk.earnings_rows(s, frames[s], dates[s], e, ep)]
+            variants.append(evaluate(ep.name, ep.__dict__, rows, base_e))
+
+    for params in rk.GRID:
+        if params.trail not in baselines:
+            base = [r for s, df in frames.items() for r in rk.symbol_rows(s, df, dates[s], params, baseline=True)]
+            baselines[params.trail] = rk.with_costs(pd.DataFrame(base), COST_BPS_PRIMARY) if base else pd.DataFrame()
+        base = baselines[params.trail]
+        rows = [r for s, df in frames.items() for r in rk.symbol_rows(s, df, dates[s], params, baseline=False)]
+        variants.append(evaluate(params.name, params.__dict__, rows, base))
     passing = [v for v in variants if v.get("gates", {}).get("passes")]
     chosen = max(passing, key=lambda v: v["portfolio_train_val"].get("sharpe") or -9)["name"] if passing else None
     return {"start": first, "spy": spy, "variants": variants, "chosen": chosen}
@@ -896,7 +905,10 @@ def run_research(symbols: list[str], years: int = 10, out_dir: str | Path = "res
             "rotation": rotation,
         }
 
-    results["rockets"] = rocket_results(raw_frames, set(largecap), spy_closes, prices, splits)
+    earnings, earnings_failed = rk.fetch_earnings(sorted(raw_frames))
+    logger.info("research: earnings history for %d symbols (%d without)", len(earnings), len(earnings_failed))
+    results["rockets"] = rocket_results(raw_frames, set(largecap), spy_closes, prices, splits, earnings)
+    results["rockets"]["earnings_coverage"] = {"symbols": len(earnings), "missing": len(earnings_failed)}
     results["rotation_selection"] = select_rotation(results["universes"]["largecap_2015"].get("rotation"))
     results["meta"] = {
         "symbols_ok": len(returns), "symbols_failed": len(failed), "failed": failed, "years": years,

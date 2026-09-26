@@ -174,3 +174,104 @@ def rocket_gates(entry: dict, spy_tv: dict, spy_full: dict) -> dict:
         "drawdown_tolerable": (full.get("max_drawdown_pct") or -100) >= GATE_MAX_DRAWDOWN,
     }
     return {"passes": all(checks.values()), "checks": checks}
+
+
+# ---------------------------------------------------------------------------
+# Earnings rockets (post-earnings-announcement drift, PEAD)
+# ---------------------------------------------------------------------------
+# The documented version of the rocket idea: a company beats analysts'
+# EPS estimate AND the stock jumps on it. The reaction is measured over the
+# two sessions after the announcement (close before -> close of the second
+# session), so it doesn't matter whether the report came before the open or
+# after the close; the buy is at the next open after that. Fixed before any
+# result was seen.
+
+EARNINGS_MAX_HOLD = 60   # the drift is documented over roughly a quarter
+EARNINGS_TRAIL = 0.25
+
+
+@dataclass(frozen=True)
+class EarningsParams:
+    min_surprise_pct: float = 0.0   # EPS surprise in percent (> this)
+    min_reaction: float = 0.05      # 2-session price reaction
+
+    @property
+    def name(self) -> str:
+        return f"EPS surprise>{self.min_surprise_pct:g}%, reaction>={self.min_reaction * 100:g}%"
+
+
+EARNINGS_GRID = [EarningsParams(s, r) for s in (0.0, 10.0) for r in (0.05, 0.10)]
+
+
+def fetch_earnings(symbols: list[str], sleep: float = 0.3) -> tuple[dict[str, pd.DataFrame], dict[str, str]]:
+    """Historical earnings dates with EPS estimate / reported / surprise from
+    Yahoo. Failures are reported, never filled in."""
+    import time
+
+    import yfinance as yf
+
+    out, failed = {}, {}
+    for symbol in symbols:
+        try:
+            df = yf.Ticker(symbol).get_earnings_dates(limit=60)
+            col = next((c for c in df.columns if "Surprise" in c), None) if df is not None else None
+            if df is None or df.empty or col is None:
+                failed[symbol] = "no earnings history"
+                continue
+            out[symbol] = df.rename(columns={col: "surprise_pct"})[["surprise_pct"]].dropna()
+        except Exception as exc:  # yfinance raises many types
+            failed[symbol] = f"{type(exc).__name__}: {exc}"
+        time.sleep(sleep)
+    return out, failed
+
+
+def earnings_rows(symbol: str, df: pd.DataFrame, dates: np.ndarray, earnings: pd.DataFrame,
+                  params: EarningsParams) -> list[dict]:
+    close_time = df["close_time"]
+    opens, closes = df["open"].to_numpy(float), df["close"].to_numpy(float)
+    ok = eligible(event_features(df)).to_numpy()
+    rows = []
+    for ts, e in earnings.iterrows():
+        ts = pd.Timestamp(ts)
+        ts = ts.tz_localize("America/New_York") if ts.tzinfo is None else ts
+        after = np.flatnonzero((close_time > ts).to_numpy())
+        if not len(after):
+            continue
+        d0 = int(after[0])
+        d1 = d0 + 1
+        if d0 < 1 or d1 + 1 >= len(df) or not ok[d1]:
+            continue
+        reaction = closes[d1] / closes[d0 - 1] - 1
+        if not (e["surprise_pct"] > params.min_surprise_pct and reaction >= params.min_reaction):
+            continue
+        ex = trailing_exit(opens, closes, d1, EARNINGS_TRAIL, EARNINGS_MAX_HOLD)
+        if ex is None:
+            continue
+        k, price, reason = ex
+        rows.append({
+            "symbol": symbol, "date": dates[d1], "entry_date": dates[d1 + 1], "exit_date": dates[k], "i": d1, "exit_i": k,
+            "fill": float(opens[d1 + 1]), "exit_raw": price, "reason": reason, "hold_bars": k - d1 - 1,
+            "jump": float(reaction), "surprise_pct": float(e["surprise_pct"]),
+            "volume_ratio": float(e["surprise_pct"]),   # portfolio rank: biggest surprise first
+            "stop_dist_pct": EARNINGS_TRAIL * 100,
+        })
+    return rows
+
+
+def earnings_baseline_rows(symbol: str, df: pd.DataFrame, dates: np.ndarray) -> list[dict]:
+    """Random-date entries in the same stock, same liquidity filter and the
+    same exit (25% trail, 60 sessions)."""
+    opens, closes = df["open"].to_numpy(float), df["close"].to_numpy(float)
+    ok = eligible(event_features(df)).to_numpy()
+    rows = []
+    for i in range(21, len(df) - 1, BASELINE_EVERY):
+        if not ok[i]:
+            continue
+        ex = trailing_exit(opens, closes, i, EARNINGS_TRAIL, EARNINGS_MAX_HOLD)
+        if ex is None:
+            continue
+        k, price, reason = ex
+        rows.append({"symbol": symbol, "date": dates[i], "entry_date": dates[i + 1], "exit_date": dates[k], "i": i,
+                     "exit_i": k, "fill": float(opens[i + 1]), "exit_raw": price, "reason": reason,
+                     "hold_bars": k - i - 1, "volume_ratio": 0.0, "stop_dist_pct": EARNINGS_TRAIL * 100})
+    return rows

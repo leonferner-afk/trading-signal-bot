@@ -71,3 +71,27 @@ def test_gates_require_every_check():
     assert rk.rocket_gates(lucky, spy_tv, spy)["checks"]["without_top3_beats_spy"] is False
     crashy = {**good, "portfolio": {"max_drawdown_pct": -70.0}}
     assert not rk.rocket_gates(crashy, spy_tv, spy)["passes"]
+
+
+def test_earnings_rocket_needs_a_beat_and_a_price_reaction():
+    n = 120
+    days = pd.bdate_range("2025-01-01", periods=n)
+    close_time = (days.tz_localize("America/New_York") + pd.Timedelta(hours=16)).tz_convert("UTC")
+    closes = np.full(n, 20.0)
+    closes[31], closes[32] = 21.0, 22.4             # report after the close on day 30: +12% over two sessions
+    closes[33:] = 22.4
+    df = pd.DataFrame({"open": closes, "high": closes * 1.01, "low": closes * 0.99, "close": closes,
+                       "volume": 1e6, "close_time": close_time})
+    dates = days.strftime("%Y-%m-%d").to_numpy()
+    after_close = days[30].tz_localize("America/New_York") + pd.Timedelta(hours=16, minutes=30)
+    beat = pd.DataFrame({"surprise_pct": [20.0]}, index=[after_close])
+    miss = pd.DataFrame({"surprise_pct": [-5.0]}, index=[after_close])
+
+    rows = rk.earnings_rows("X", df, dates, beat, rk.EarningsParams(0.0, 0.10))
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["date"] == dates[32] and r["entry_date"] == dates[33]     # decided after the 2-session reaction
+    assert r["jump"] == pytest.approx(22.4 / 20.0 - 1) and r["reason"] == "time"
+    assert r["hold_bars"] == rk.EARNINGS_MAX_HOLD
+    assert rk.earnings_rows("X", df, dates, miss, rk.EarningsParams(0.0, 0.10)) == []       # missed estimates
+    assert rk.earnings_rows("X", df, dates, beat, rk.EarningsParams(25.0, 0.10)) == []      # surprise too small
