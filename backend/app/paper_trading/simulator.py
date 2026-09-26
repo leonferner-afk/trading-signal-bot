@@ -50,6 +50,46 @@ def price_adjustment(df: pd.DataFrame, record: SignalRecord) -> float:
     return factor if factor > 0 and abs(factor - 1) > 1e-4 else 1.0
 
 
+ROTATION_EXIT = "ROTATION_EXIT"
+
+
+def _evaluate_rotation(df: pd.DataFrame, after: pd.DataFrame, record: SignalRecord) -> dict | None:
+    """Rotation position: filled at the first open after the buy signal;
+    closed at a standing protective stop (if any) or at the first open after
+    the bot's sell signal — whichever comes first. Same order of events as
+    app.rotation.simulate."""
+    opens, highs, lows = (after[c].to_numpy(dtype=float) for c in ("open", "high", "low"))
+    fill = float(opens[0])
+    stop = fill * (record.stop / record.entry) if record.stop and record.entry else None
+    exit_at = len(after)
+    if record.exit_signal_at:
+        later = (after["close_time"] > _parse_timestamp(record.exit_signal_at)).to_numpy()
+        exit_at = int(later.argmax()) if later.any() else len(after)
+    result = exit_price = None
+    last = exit_at
+    for k in range(min(exit_at, len(after))):
+        if stop is not None and lows[k] <= stop:
+            result, exit_price, last = "STOP_HIT", min(stop, float(opens[k])), k
+            break
+    if result is None:
+        if exit_at >= len(after):
+            return None  # still held (or the sell hasn't been fillable yet)
+        result, exit_price, last = ROTATION_EXIT, float(opens[exit_at]), exit_at
+    window = slice(0, last + 1) if result == "STOP_HIT" else slice(0, max(last, 1))
+    ret = net_return_pct(fill, exit_price, "LONG", settings.fee_bps, settings.slippage_bps)
+    closed_at = after["close_time"].iloc[last]
+    return {
+        "result": result, "fill_price": round(fill, 4), "exit_price": round(exit_price, 4), "return_pct": round(ret, 3),
+        "r_multiple": None,
+        "max_favorable_excursion_pct": round((highs[window].max() / fill - 1) * 100, 3),
+        "max_adverse_excursion_pct": round((lows[window].min() / fill - 1) * 100, 3),
+        "holding_time_minutes": round((closed_at - _parse_timestamp(record.timestamp)).total_seconds() / 60.0, 1),
+        "holding_bars": last + 1 if result == "STOP_HIT" else last,
+        "closed_at": closed_at.to_pydatetime(),
+        "exit_reason": record.exit_reason if result == ROTATION_EXIT else "stop-order utlöst",
+    }
+
+
 def evaluate_open_signal(client: StockClient, record: SignalRecord, max_holding_bars: int = MAX_HOLDING_BARS_DEFAULT) -> dict | None:
     """Update dict if the position resolved (or never filled), else None
     (still open, or data unavailable)."""
@@ -57,6 +97,8 @@ def evaluate_open_signal(client: StockClient, record: SignalRecord, max_holding_
     if bars is None or bars[1].empty:
         return None
     df, after = bars
+    if record.strategy == "rotation":
+        return _evaluate_rotation(df, after, record)
     k = price_adjustment(df, record)
     entry, stop, target = record.entry * k, record.stop * k, record.target * k
 
@@ -137,7 +179,9 @@ def run_paper_trading_update(interval: str | None = None, client: StockClient | 
             fill_price=update["fill_price"], exit_price=update["exit_price"],
             return_pct=update["return_pct"], r_multiple=update["r_multiple"],
         )
-        if update["result"] != SKIPPED_GAP:
+        # A rotation exit was already announced ("SÄLJ NU") when the bot
+        # decided it; only a stop the broker executed is news now.
+        if update["result"] != SKIPPED_GAP and update["result"] != ROTATION_EXIT:
             notify_exit(record, update)
         updated.append({"id": record.id, "symbol": record.symbol, "strategy": record.strategy,
                         **{k: v for k, v in update.items() if k != "closed_at"}})

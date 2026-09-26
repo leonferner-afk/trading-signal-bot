@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -23,7 +24,8 @@ from app.journal import repository as journal
 from app.notify import github_issue, telegram_client
 from app.notify.notifier import notify_entry
 from app.paper_trading.simulator import SKIPPED_GAP, current_mark, run_paper_trading_update
-from app.policy import LivePolicy, active_policy, evidence_for, load_evidence
+from app.policy import (LivePolicy, active_mode, active_policy, active_rotation_params, active_rotation_universe,
+                        evidence_for, load_evidence)
 from app.risk.position_sizing import PositionSize, compute_position_size
 from app.runtime_settings import get_effective_settings
 from app.scanner.scanner import ANCHOR_SYMBOL, ScanResult, run_scan
@@ -42,6 +44,8 @@ class DailyOutcome:
     buys: list[Signal] = field(default_factory=list)
     exits: list[dict] = field(default_factory=list)
     issue_url: str | None = None
+    rotation_buys: list[str] = field(default_factory=list)
+    rotation_sells: list[str] = field(default_factory=list)
 
 
 def select_buys(
@@ -211,27 +215,86 @@ def build_report(
 def run_daily(report_dir: str | Path = "reports") -> DailyOutcome:
     init_db()
     live = get_effective_settings()
-    policy = active_policy()
     evidence = load_evidence()
     now = dt.datetime.now(dt.timezone.utc)
     today = now.strftime("%Y-%m-%d")
 
     client = StockClient()
     open_before = journal.get_open_signals()
-    universe = [s for s in live.watchlist if s != ANCHOR_SYMBOL]
+    mode = active_mode()
+    # Rotation trades its own tested universe (large caps by default); an
+    # explicit WATCHLIST override still wins, for experimentation.
+    custom_list = "watchlist_csv" in live.overridden_fields or bool(os.getenv("WATCHLIST"))
+    watchlist = live.watchlist if (mode == "swing" or custom_list) else active_rotation_universe()
+    universe = [s for s in watchlist if s != ANCHOR_SYMBOL]
     client.prefetch(sorted(set(universe + [r.symbol for r in open_before] + [ANCHOR_SYMBOL])), "1d", limit=400)
 
     # Which market session does today's data end on? Same session as the
     # last processed run -> nothing new happened (US holiday, manual re-run):
     # positions are still checked, but no new signals are issued.
     try:
-        session = session_date(client.get_klines(ANCHOR_SYMBOL, "1d", limit=400))
+        spy = client.get_klines(ANCHOR_SYMBOL, "1d", limit=400)
     except DataUnavailable:
-        session = None
+        spy = None
+    session = session_date(spy)
     last_session = journal.last_processed_session()
     new_session = session is not None and session != last_session
     stale = session is None or (now.date() - dt.date.fromisoformat(session)).days > MAX_SESSION_AGE_DAYS
 
+    if mode == "rotation":
+        return _run_rotation(report_dir, today, client, universe, spy, session, new_session, stale, evidence)
+    return _run_swing(report_dir, today, now, client, universe, session, new_session, stale, evidence)
+
+
+def _write_and_publish(report_dir, today: str, report: str, headline_parts: list[str], ok: bool) -> str | None:
+    out = Path(report_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"{today}.md").write_text(report, encoding="utf-8")
+    (out / "latest.md").write_text(report, encoding="utf-8")
+    if not headline_parts and ok:
+        return None
+    title = f"📈 {today}: " + (" · ".join(headline_parts) if headline_parts else "⚠ datafel, kontrollera körningen")
+    issue_url = github_issue.publish(title, report)
+    if telegram_client.is_configured() and not headline_parts:
+        telegram_client.send_message(title)
+    return issue_url
+
+
+def _data_warning(stale: bool, ok: bool, session: str | None) -> str:
+    if stale:
+        return (f"> ⚠ **Marknadsdatan är inaktuell** (senaste handelsdag: {session or 'saknas'}) — inga nya signaler idag. "
+                "Kontrollera datakällan om detta upprepas.\n\n")
+    if not ok:
+        return "> ⚠ **Datakvaliteten var för dålig idag** (för många aktier kunde inte hämtas) — resultatet nedan är ofullständigt.\n\n"
+    return ""
+
+
+def _run_rotation(report_dir, today, client, universe, spy, session, new_session, stale, evidence) -> DailyOutcome:
+    from app.live_rotation import build_rotation_report, run_rotation_day
+    from app.paper_trading.simulator import ROTATION_EXIT
+
+    params = active_rotation_params()
+    act = new_session and not stale
+    day = run_rotation_day(client, universe, spy, params, evidence, "UNKNOWN", act)
+    ok = not stale and (not act or len(day.features.skipped) < max(10, len(universe) // 2))
+    open_positions = [(r, current_mark(client, r)) for r in journal.get_open_signals()]
+    report = build_rotation_report(today, session, new_session, params, day, open_positions,
+                                   journal.performance_summary(), evidence, len(universe))
+    report = _data_warning(stale, ok, session) + report
+    stops = [e for e in day.closed if e["result"] not in (SKIPPED_GAP, ROTATION_EXIT)]
+    sold = [r.symbol for r, _, _ in day.sells] + [e["symbol"] for e in stops]
+    parts = ([f"KÖP {', '.join(s for s, _ in day.buys)}"] if day.buys else []) + ([f"SÄLJ {', '.join(sold)}"] if sold else [])
+    issue_url = _write_and_publish(report_dir, today, report, parts, ok)
+    if act and ok:
+        journal.record_bot_run(session, len(day.buys), len(day.sells))
+    logger.info("daily/rotation: session %s (new=%s, stale=%s), %d buys, %d sells, %d closed, issue=%s",
+                session, new_session, stale, len(day.buys), len(day.sells), len(day.closed), issue_url)
+    return DailyOutcome(ok=ok, report_markdown=report, buys=[], exits=day.closed, issue_url=issue_url,
+                        rotation_buys=[s for s, _ in day.buys], rotation_sells=[r.symbol for r, _, _ in day.sells])
+
+
+def _run_swing(report_dir, today, now, client, universe, session, new_session, stale, evidence) -> DailyOutcome:
+    policy = active_policy()
     exits = run_paper_trading_update(client=client)["updated"]
     if new_session and not stale:
         scan = run_scan(universe, "1d", client=client, strategies=policy.strategy_modules())
@@ -252,29 +315,15 @@ def run_daily(report_dir: str | Path = "reports") -> DailyOutcome:
     open_positions = [(r, current_mark(client, r)) for r in journal.get_open_signals()]
     report = build_report(today, scan, policy, buys, buy_evidence, watch, exits, open_positions,
                           journal.performance_summary(), evidence is not None, session, new_session)
-    if stale:
-        report = (f"> ⚠ **Marknadsdatan är inaktuell** (senaste handelsdag: {session or 'saknas'}) — inga nya signaler idag. "
-                  "Kontrollera datakällan om detta upprepas.\n\n") + report
-    elif not ok:
-        report = "> ⚠ **Datakvaliteten var för dålig idag** (för många aktier kunde inte hämtas) — resultatet nedan är ofullständigt.\n\n" + report
+    report = _data_warning(stale, ok, session) + report
 
-    out = Path(report_dir)
-    out.mkdir(parents=True, exist_ok=True)
-    (out / f"{today}.md").write_text(report, encoding="utf-8")
-    (out / "latest.md").write_text(report, encoding="utf-8")
-
-    issue_url = None
     real_exits = [e for e in exits if e["result"] != SKIPPED_GAP]
-    if buys or real_exits or not ok:
-        parts = ([f"KÖP {', '.join(s.symbol for s, _ in buys)}"] if buys else []) + \
-                ([f"SÄLJ {', '.join(e['symbol'] for e in real_exits)}"] if real_exits else [])
-        title = f"📈 {today}: " + (" · ".join(parts) if parts else "⚠ datafel, kontrollera körningen")
-        issue_url = github_issue.publish(title, report)
-        if telegram_client.is_configured() and not buys and not real_exits:
-            telegram_client.send_message(title)
+    parts = ([f"KÖP {', '.join(s.symbol for s, _ in buys)}"] if buys else []) + \
+            ([f"SÄLJ {', '.join(e['symbol'] for e in real_exits)}"] if real_exits else [])
+    issue_url = _write_and_publish(report_dir, today, report, parts, ok)
 
     if new_session and ok:
         journal.record_bot_run(session, len(buys), len(real_exits))
-    logger.info("daily: session %s (new=%s, stale=%s), %d buys, %d exits, %d watch, %d skipped symbols, issue=%s",
+    logger.info("daily/swing: session %s (new=%s, stale=%s), %d buys, %d exits, %d watch, %d skipped symbols, issue=%s",
                 session, new_session, stale, len(buys), len(real_exits), len(watch), len(scan.skipped), issue_url)
     return DailyOutcome(ok=ok, report_markdown=report, buys=[s for s, _ in buys], exits=exits, issue_url=issue_url)

@@ -15,6 +15,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.rotation import RotationParams
 from app.scoring.score import Signal
 from app.strategies import breakout, momentum, reversal
 
@@ -154,3 +155,35 @@ def evidence_for(evidence: dict | None, strategy: str, policy: LivePolicy) -> di
                 "oos_avg_r": oos.get("avg_r"),
             }
     return None
+
+
+# Chosen from the research on train+validation data only (see README,
+# "Evidence"); each knob can be overridden via env.
+DEFAULT_MODE = "rotation"
+DEFAULT_ROTATION_UNIVERSE = "largecap"
+DEFAULT_ROTATION = RotationParams(max_positions=8, entry_rs=0.8, exit_rs=0.5, regime_exit=False, stop_pct=0.0)
+
+
+def active_mode() -> str:
+    mode = (os.getenv("POLICY_MODE") or DEFAULT_MODE).strip().lower()
+    return mode if mode in ("rotation", "swing") else DEFAULT_MODE
+
+
+def active_rotation_params() -> RotationParams:
+    from app.config import settings
+
+    d = DEFAULT_ROTATION
+    return RotationParams(
+        max_positions=int(os.getenv("ROTATION_MAX_POSITIONS") or d.max_positions),
+        entry_rs=float(os.getenv("ROTATION_ENTRY_RS") or d.entry_rs),
+        exit_rs=float(os.getenv("ROTATION_EXIT_RS") or d.exit_rs),
+        regime_exit=_env_bool("ROTATION_REGIME_EXIT", d.regime_exit),
+        stop_pct=float(os.getenv("ROTATION_STOP_PCT") or d.stop_pct),
+        max_new_per_day=settings.max_new_buys_per_day,
+    )
+
+
+def active_rotation_universe() -> tuple[str, ...]:
+    from app.universe import rotation_universe
+
+    return rotation_universe((os.getenv("ROTATION_UNIVERSE") or DEFAULT_ROTATION_UNIVERSE).strip().lower())

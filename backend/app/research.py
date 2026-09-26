@@ -492,7 +492,10 @@ def segment_stats(sim: dict, start: str | None = None, end: str | None = None) -
 
 
 def rotation_results(panel: rot.Panel, splits: SplitDates, spy_closes: pd.Series,
-                     random_runs: int = ROTATION_RANDOM_RUNS) -> dict:
+                     random_runs: int = ROTATION_RANDOM_RUNS, rebuild=None) -> dict:
+    """`rebuild(symbols)` builds the panel for a subset of symbols — used to
+    re-run each rule set without its single most profitable stock (an edge
+    that rests on one name is not an edge)."""
     if len(panel.dates) < rot.RS_LOOKBACK + 200 + 60 or not panel.symbols:
         return None
     configs = []
@@ -507,6 +510,14 @@ def rotation_results(panel: rot.Panel, splits: SplitDates, spy_closes: pd.Series
             "oos": segment_stats(sim, start=splits.oos_start),
             "cost_sensitivity": {f"{b:g}": segment_stats(rot.simulate(panel, params, b)) for b in COST_BPS_GRID if b != COST_BPS_PRIMARY},
         }
+        if rebuild is not None and sim["trades"]:
+            by_symbol: dict[str, float] = {}
+            for t in sim["trades"]:
+                by_symbol[t["symbol"]] = by_symbol.get(t["symbol"], 0.0) + t["ret_pct"]
+            top = max(by_symbol, key=by_symbol.get)
+            without = rot.simulate(rebuild([x for x in panel.symbols if x != top]), params, COST_BPS_PRIMARY)
+            entry["without_top"] = {"symbol": top, **{k: v for k, v in segment_stats(without).items()
+                                                        if k in ("cagr_pct", "max_drawdown_pct", "sharpe")}}
         if random_runs:
             sims = [rot.simulate(panel, params, COST_BPS_PRIMARY, rng=np.random.default_rng(500 + k)) for k in range(random_runs)]
             rand_full = np.array([segment_stats(x)["cagr_pct"] for x in sims])
@@ -609,7 +620,7 @@ def to_markdown(results: dict) -> str:
             lines.append(f"| {label} | {full['cagr_pct']:+.1f}% | {full['max_drawdown_pct']:.0f}% | {_fmt(full['sharpe'], '.2f')} | "
                          f"{_fmt(tv.get('sharpe'), '.2f')} | {_fmt(oos.get('cagr_pct'), '+.1f')}% | {_fmt(oos.get('sharpe'), '.2f')} |")
         lines += ["", "| rule set | trades/yr | exposure | win% | avg trade | avg days | CAGR | max DD | Sharpe | train+val Sharpe | "
-                  "OOS CAGR | OOS Sharpe | vs random | CAGR @15 / @70 bps |", "|---|" + "---|" * 13]
+                  "OOS CAGR | OOS Sharpe | vs random | CAGR @15 / @70 bps | without best stock |", "|---|" + "---|" * 14]
         for c in r["configs"]:
             f, tv, o = c["full"], c["train_val"], c["oos"]
             cs = c["cost_sensitivity"]
@@ -618,7 +629,9 @@ def to_markdown(results: dict) -> str:
                 f"{_fmt(f.get('win_rate') and f['win_rate'] * 100, '.0f')} | {_fmt(f.get('avg_trade_pct'), '+.1f')}% | {_fmt(f.get('avg_days'), '.0f')} | "
                 f"{f['cagr_pct']:+.1f}% | {f['max_drawdown_pct']:.0f}% | {_fmt(f['sharpe'], '.2f')} | {_fmt(tv.get('sharpe'), '.2f')} | "
                 f"{_fmt(o.get('cagr_pct'), '+.1f')}% | {_fmt(o.get('sharpe'), '.2f')} | {_fmt(c.get('rank_percentile'), '.0%')} | "
-                f"{_fmt(cs.get('15', {}).get('cagr_pct'), '+.1f')}% / {_fmt(cs.get('70', {}).get('cagr_pct'), '+.1f')}% |"
+                f"{_fmt(cs.get('15', {}).get('cagr_pct'), '+.1f')}% / {_fmt(cs.get('70', {}).get('cagr_pct'), '+.1f')}% | "
+                + (f"{c['without_top']['symbol']}: {c['without_top']['cagr_pct']:+.1f}%, Sharpe {_fmt(c['without_top']['sharpe'], '.2f')} |"
+                   if c.get("without_top") else "— |")
             )
     lines += ["", "## Mean R by year (all universe, fixed exit)", ""]
     years = sorted({y for row in results["universes"]["all"]["per_trade"] for y in row["avg_r_by_year"]})
@@ -678,7 +691,8 @@ def run_research(symbols: list[str], years: int = 10, out_dir: str | Path = "res
     results = {"splits": splits.__dict__, "universes": {}}
     for universe, subset, rs_col in (("all", frame, "rs"), ("largecap_2015", frame[frame["largecap"]], "rs_largecap")):
         members = sorted(returns) if universe == "all" else largecap
-        rotation = rotation_results(rot.build_panel(ohlc, spy_frame, members), splits, spy_closes, random_runs and ROTATION_RANDOM_RUNS)
+        rotation = rotation_results(rot.build_panel(ohlc, spy_frame, members), splits, spy_closes, random_runs and ROTATION_RANDOM_RUNS,
+                                    rebuild=lambda syms: rot.build_panel(ohlc, spy_frame, syms))
         primary = with_costs(subset, COST_BPS_PRIMARY)
         portfolio = portfolio_results(subset, spy_closes, prices, splits, rs_col, COST_BPS_PRIMARY, "fixed", random_runs)
         sensitivity = {}

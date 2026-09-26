@@ -47,6 +47,7 @@ def market(monkeypatch, tmp_path):
     from app.runtime_settings import update_settings_overrides
 
     update_settings_overrides(watchlist=["AAA", "BBB", "CCC"])
+    monkeypatch.setenv("POLICY_MODE", "swing")  # rotation mode has its own tests
     yield frames, sent
     update_settings_overrides(watchlist=None)
 

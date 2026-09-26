@@ -58,6 +58,11 @@ class SignalRecord(Base):
     exit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     return_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     r_multiple: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Rotation positions have no fixed target: the bot issues a sell signal
+    # at a close (timestamp of that bar + why), and the position is closed at
+    # the next session's open.
+    exit_signal_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    exit_reason: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class BotRun(Base):

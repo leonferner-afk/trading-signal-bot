@@ -41,11 +41,31 @@ _GROUPS = {
     "fallen_favourites": "BYND SPCE OPEN FUBO LMND ROOT PENN CCL AAL NCLH LUMN VFC",
 }
 
+# Companies that were already among the ~100 largest US-listed companies
+# around 2015 and still trade today (current tickers). Chosen by SIZE THEN,
+# not by what happened since — e.g. NVDA (~$18B in 2015) is deliberately
+# absent. Companies acquired or delisted since (MON, TWX, EMC, CELG, ...)
+# can't be fetched from free data; that residual survivorship bias is stated
+# in the README.
 LARGECAP_2015 = tuple(
-    """AAPL MSFT AMZN GOOGL META JNJ JPM XOM WFC GE PG T VZ PFE CVX KO MRK PEP INTC CSCO ORCL IBM HD DIS
-    BAC C WMT UNH AMGN GILD BMY ABBV MDT QCOM MO PM MCD NKE SBUX UPS UNP MMM BA CAT HON LMT GD RTX EMR
+    """AAPL MSFT AMZN GOOGL META BRK-B JNJ JPM XOM WFC GE PG T VZ PFE CVX KO MRK PEP INTC CSCO ORCL IBM HD
+    DIS BAC C WMT UNH AMGN GILD BMY ABBV MDT QCOM MO PM MCD NKE SBUX UPS UNP MMM BA CAT HON LMT GD RTX EMR
     F GM COP OXY SLB HAL DVN FCX KMI SPG AIG MET AXP USB GS MS BK BLK COF CL MDLZ CVS LLY BIIB EBAY
-    TXN AVGO NFLX CMCSA TGT LOW COST ABT DHR V MA ACN ADBE CRM NVDA BKNG TMO NEE DUK SO""".split()
+    TXN AVGO NFLX CMCSA TGT LOW COST ABT DHR V MA ACN ADBE CRM BKNG TMO NEE DUK SO
+    PYPL KHC FDX PNC KMB ADP EOG PSX CB AMT MCK REGN""".split()
+)
+
+# Today's large caps — the universe the live momentum rotation trades. The
+# research tests the same rule on LARGECAP_2015 (large caps as they were
+# known at the START of the test), which is the hindsight-free version of
+# "rotate among the largest companies". Refresh this list about once a year
+# with the largest US-listed companies at that time.
+LARGECAP_NOW = tuple(
+    """AAPL MSFT NVDA GOOGL AMZN META AVGO TSLA BRK-B LLY JPM V WMT ORCL MA XOM UNH COST NFLX HD PG JNJ ABBV
+    BAC CRM KO PLTR TMUS CVX AMD CSCO WFC MRK IBM PM ABT GE MS AXP GS LIN MCD ISRG NOW DIS PEP T UBER INTU RTX
+    TXN QCOM BX CAT VZ BKNG SCHW BA AMGN ANET SPGI C ADBE PGR BLK TMO NEE HON AMAT SYK LOW UNP PFE GILD DHR
+    ETN KKR DE MU LRCX COF APH ADP KLAC PANW MDT CRWD ADI CMCSA SBUX APP HOOD INTC CB LMT MO MMC BMY SO PLD
+    CEG WELL VRTX GEV DASH SHOP MELI""".split()
 )
 
 
@@ -63,3 +83,8 @@ def research_universe() -> tuple[str, ...]:
     for ticker in LARGECAP_2015:
         seen.setdefault(ticker, None)
     return tuple(seen)
+
+
+def rotation_universe(name: str) -> tuple[str, ...]:
+    """'largecap' (default): today's large caps; 'all': the research universe."""
+    return research_universe() if name == "all" else LARGECAP_NOW

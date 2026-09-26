@@ -277,3 +277,33 @@ def record_bot_run(session_date: str, buys: int, exits: int) -> None:
     with get_session() as session:
         session.add(BotRun(session_date=session_date, buys=buys, exits=exits))
         session.commit()
+
+
+ROTATION = "rotation"
+
+
+def save_rotation_buy(symbol: str, timestamp: str, last_close: float, stop: float, details: dict,
+                      market_wide_risk: str, evidence: dict | None) -> int:
+    """A rotation BUY: `last_close` is the signal close (the fill will be the
+    next open); `stop` is 0 when the rule set uses no protective stop."""
+    with get_session() as session:
+        record = SignalRecord(
+            timestamp=timestamp, symbol=symbol, direction="LONG", strategy=ROTATION,
+            entry=last_close, target=0.0, stop=stop,
+            risk_pct=round((1 - stop / last_close) * 100, 3) if stop else 0.0, reward_pct=0.0, rr_ratio=0.0,
+            score=round(details.get("rs", 0.0) * 100, 1), tier="ROTATION", market_regime="trend leader",
+            market_wide_risk=market_wide_risk, features_json=json.dumps(details), news_json=json.dumps({}),
+            historical_probability_json=json.dumps(evidence or {}), result="OPEN",
+        )
+        session.add(record)
+        session.commit()
+        return record.id
+
+
+def mark_exit_signal(record_id: int, timestamp: str, reason: str) -> None:
+    with get_session() as session:
+        record = session.get(SignalRecord, record_id)
+        if record is not None and record.exit_signal_at is None:
+            record.exit_signal_at = timestamp
+            record.exit_reason = reason
+            session.commit()

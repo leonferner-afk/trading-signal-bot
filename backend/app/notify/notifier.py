@@ -176,3 +176,50 @@ def notify_exit(record: SignalRecord, update: dict) -> None:
 # Backwards-compatible aliases used by earlier call sites / external scripts.
 format_signal_message = format_entry_message
 notify = notify_entry
+
+
+# ---------------------------------------------------------------------------
+# Momentum rotation ("trendledare")
+# ---------------------------------------------------------------------------
+
+def format_rotation_buy(symbol: str, info: dict, size, params, evidence: dict | None) -> str:
+    shares = int(size.units) if size.units >= 1 else round(size.units, 3)
+    lines = [
+        f"🟢 KÖP NU — {symbol}",
+        f"Trendledare: +{info['ret_6m'] * 100:.0f}% senaste 6 mån, starkare än {info['rs'] * 100:.0f}% av {info['universe']} aktier, "
+        f"över sitt 200-dagars snitt.",
+        "",
+        f"Köp vid börsens öppning (senaste stängning {info['last_close']:g})",
+        f"Storlek: {shares} st ≈ ${size.position_size_usd:,.0f} ({size.position_pct_of_portfolio:.0f}% av portföljen, "
+        f"en av max {params.max_positions} positioner)",
+    ]
+    if params.stop_pct:
+        lines.append(f"Stop-loss: lägg en stop-order {params.stop_pct * 100:g}% under ditt köppris "
+                     f"(≈ {info['last_close'] * (1 - params.stop_pct):.2f}) direkt efter köpet")
+    lines += [
+        "Inget fast mål: behåll så länge den är stark. Boten skickar SÄLJ NU när aktien tappar sin relativa styrka "
+        "eller sin trend.",
+    ]
+    if evidence:
+        lines += ["", f"Historik ({evidence['label']}): {evidence['cagr_pct']:+.1f}%/år, största nedgång {evidence['max_drawdown_pct']:.0f}%, "
+                      f"{evidence['win_rate'] * 100:.0f}% vinnande affärer, snitt {evidence['avg_trade_pct']:+.1f}% på {evidence['avg_days']:.0f} dagar. "
+                      f"SPY samma period: {evidence['spy_cagr_pct']:+.1f}%/år."]
+    lines += ["", "Boten handlar aldrig åt dig. Historik är ingen garanti — varje affär kan förlora."]
+    return "\n".join(lines)
+
+
+def format_rotation_sell(record: SignalRecord, reason: str, mark: dict | None) -> str:
+    lines = [f"🔴 SÄLJ NU — {record.symbol}", f"Varför: {reason}.", "Sälj vid börsens öppning."]
+    if mark and mark.get("fill_price") is not None and mark.get("unrealized_pct") is not None:
+        lines.append(f"Köpt {mark['fill_price']:g}, senast {mark['last_close']:g} ({mark['unrealized_pct']:+.1f}% före avgifter), "
+                     f"{mark['sessions_held']} handelsdagar.")
+    lines.append("Glöm inte att ta bort din stop-order om du har en.")
+    return "\n".join(lines)
+
+
+def notify_rotation_buy(symbol: str, info: dict, size, params, evidence: dict | None) -> None:
+    _deliver(format_rotation_buy(symbol, info, size, params, evidence))
+
+
+def notify_rotation_sell(record: SignalRecord, reason: str, mark: dict | None) -> None:
+    _deliver(format_rotation_sell(record, reason, mark))
