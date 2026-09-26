@@ -38,7 +38,7 @@ Forskningen (`python -m app.cli research`, körs automatiskt varje söndag,
 fullständig rapport i `research.md` på grenen `bot-state`) testar allt
 på 10 års dagsdata med:
 
-- **Realistiska affärer:** köp och sälj vid nästa öppning, 0,40 % kostnad per sida.
+- **Realistiska affärer:** köp och sälj vid nästa öppning, 0,20 % kostnad per sida (courtage från ett USD-konto + slippage). 0,40 % (handel från SEK-konto med växling varje gång) och 0,70 % visas också.
 - **Jämförelser:** mot SPY, mot ett likaviktat innehav av samma aktier och mot slumpvis valda aktier bland samma kandidater.
 - **Datumuppdelning:** reglerna väljs på träning + validering (fram till nov 2024), och den sista perioden (nov 2024–sep 2026) används bara för att rapportera.
 - **Kontrollgrupp utan efterhandskunskap:** bolag som var stora **2015**, inte dagens vinnare. Utan den blir resultaten kraftigt missvisande (se nedan).
@@ -49,25 +49,32 @@ på 10 års dagsdata med:
 |---|---|---|---|---|---|
 | SPY (köp och behåll) | +14,5 % | −34 % | 0,81 | 0,76 | +16,7 %/år |
 | Samma bolag, likaviktat, utan kostnader | +13,8 % | −37 % | 0,79 | 0,75 | +13,7 %/år |
-| **Rotation, topp 8** | **+16,1 %** | **−29 %** | **0,76** | **0,63** | +29,8 %/år |
-| … utan sin bästa aktie (DVN) | +13,9 % | −28 % | 0,70 | | |
+| **Rotation, topp 8** | **+17,0 %** | **−29 %** | **0,80** | **0,67** | +30,5 %/år |
+| … utan sin bästa aktie (DVN) | +14,8 % | | 0,73 | | |
+| … med 0,40 % kostnad per sida (SEK-konto) | +16,1 % | | | | |
 | … med 0,70 % kostnad per sida | +14,7 % | | | | |
 
 | År | 2018 | 2019 | 2020 | 2021 | 2022 | 2023 | 2024 | 2025 | 2026 (t.o.m. sep) |
 |---|---|---|---|---|---|---|---|---|---|
 | SPY | −6 % | +31 % | +18 % | +29 % | −18 % | +26 % | +25 % | +18 % | +14 % |
-| Rotation, topp 8 | −6 % | +7 % | +16 % | +27 % | −0 % | +23 % | +26 % | +22 % | +32 % |
+| Rotation, topp 8 | −4 % | +8 % | +17 % | +28 % | +0 % | +23 % | +27 % | +22 % | +33 % |
 
 **Ärlig slutsats:**
 
 - **Mot index:** regeln har gett ungefär samma avkastning som index, med något högre årsavkastning och mindre största nedgång men mer svängningar. Ett rekordår som 2019 missade den helt, medan 2022 skyddade den bra.
-- **Riskjusterat** (Sharpe) har den **inte** slagit SPY, och **ingen** av de 16 testade varianterna klarade de förhandsbestämda kraven:
+- **Riskjusterat** (Sharpe 0,80 mot 0,81) har den **inte** slagit SPY, och **ingen** av de 19 testade varianterna klarade de förhandsbestämda kraven:
   - Sharpe över SPY:s,
   - rangordningen bättre än slumpen,
   - inte beroende av en enda aktie,
   - nedgångar nära SPY:s.
 - **Rangordningen** slog däremot 100 % av slumpvisa urval bland samma kandidater, så urvalet är inte slump.
-- **Den starka sista perioden** (+29,8 % mot +16,7 %) är för kort för att dra slutsatser av.
+- **Tre välkända förbättringar prövades och förkastades:**
+  - 12−1-månaders momentum gav +6,4 %/år,
+  - månadsvis ombalansering gav +13,8 %/år,
+  - volatilitetsjusterad styrka gav +12,8 %/år, men föll till +9,7 % utan sin bästa aktie.
+
+  Regeln behölls därför oförändrad.
+- **Den starka sista perioden** (+30,5 % mot +16,7 %) är för kort för att dra slutsatser av.
 
 Boten skriver detta i varje rapport och KÖP-meddelande. Kraven prövas om
 automatiskt varje vecka på ny data.
@@ -84,13 +91,19 @@ delen av fördelen.
 - **🟢 KÖP NU — XYZ:** köp vid börsöppningen, ungefär det antal aktier meddelandet anger (1/8 av portföljvärdet du angett). Ingen stop-order ingår i de testade reglerna — säljet kommer som en SÄLJ NU-signal.
 - **🔴 SÄLJ NU — XYZ:** sälj vid börsöppningen.
 - **Dagsrapporten** (issue eller `reports/latest.md` på `bot-state`) visar innehav, resultat hittills och vilka aktier som står näst på tur.
-- **Portföljstorleken** sätter du som repo-variabel `PORTFOLIO_SIZE_USD` (Settings → Secrets and variables → Actions → Variables). Standard är 10 000 USD.
+- **Portföljstorlek och fördelning** sätts som repo-variabler (Settings → Secrets and variables → Actions → Variables):
+  - `PORTFOLIO_SIZE_USD` är hela portföljen (standard 10 000).
+  - `BOT_SHARE_PCT` är den andel boten förvaltar (standard 100).
+
+  Resten är tänkt att ligga i en S&P 500-fond som boten aldrig rör, och varje köp blir 1/8 av botens del.
 
 ## Inställningar (valfria repo-variabler / secrets)
 
 | Namn | Standard | Vad |
 |---|---|---|
-| `PORTFOLIO_SIZE_USD` (variabel) | 10000 | Portföljvärde som positionsstorlekarna räknas från |
+| `PORTFOLIO_SIZE_USD` (variabel) | 10000 | Hela portföljens värde i USD |
+| `BOT_SHARE_PCT` (variabel) | 100 | Andel av portföljen som boten förvaltar (resten: indexfond) |
+| `FEE_BPS` (variabel) | 15 | Courtage per affär i punkter; sätt 35 om du handlar från SEK-konto |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (secrets) | — | Notiser även i Telegram: skapa en bot via @BotFather, skriv till den, hämta chat-id via `https://api.telegram.org/bot<token>/getUpdates` |
 | `TWELVE_DATA_API_KEY` (secret) | — | Reservkälla för kursdata om Yahoo strular (gratis nyckel) |
 | `POLICY_MODE` | rotation | `swing` = de gamla stop/mål-signalerna (se nedan varför de inte är standard) |
@@ -100,11 +113,11 @@ delen av fördelen.
 
 Den första versionen skickade klassiska swing-signaler: utbrott eller
 momentum med stop-loss på 1,5 × ATR och ett fast mål. I samma test gav
-dessa i kontrollgruppen **+2,1 %/år** (Sharpe 0,27) mot SPY:s +15,0 %.
-Även slumpvis valda aktier med samma stop/mål-regler gav bara +8,8 %/år.
+dessa i kontrollgruppen **+3,4 %/år** (Sharpe 0,40) mot SPY:s +15,0 %.
+Även slumpvis valda aktier med samma stop/mål-regler gav bara +5,4 %/år.
 
 Problemet är alltså utformningen. Tajta stopp slås ut av vanligt brus,
-och kostnaden på ~0,8 % per affär äter resten. Dessutom var
+och kostnaderna för många små affärer äter resten. Dessutom var
 signalstrategiernas tajming *sämre* än slumpvisa köpdagar under samma
 filter. Läget finns kvar (`POLICY_MODE=swing`) för jämförelse, men det är
 inte standard.
@@ -113,7 +126,7 @@ inte standard.
 
 - **Historik är ingen garanti.** Strategin har haft långa perioder under index, och dess största nedgång i testet var −29 % (SPY: −34 %).
 - **Överlevnadsbias:** gratis data saknar avnoterade bolag. Kontrollgruppen väljer bolag efter storlek 2015 (inte efter vad som hände sedan), men bolag som köpts upp eller avnoterats efter 2015 kan inte hämtas. Det är sannolikt en liten fördel för testet.
-- **Kostnader:** testet räknar med 0,40 % per affär och sida (courtage + valutaväxling + slippage för en svensk privatperson). Är dina kostnader högre, blir avkastningen lägre (se känslighetstabellen i `research.md`).
+- **Kostnader:** testet räknar med 0,20 % per affär och sida, vilket förutsätter att du handlar från ett **USD-konto** (valutakonto hos Avanza eller Nordnet). Då växlar du bara när du sätter in pengar, inte vid varje affär. Från ett vanligt SEK-konto blir det ~0,40 % och cirka 1 procentenhet lägre avkastning per år (+16,1 % i stället för +17,0 %).
 - **Skatt** ingår inte. Många affärer i ett vanligt depå-konto beskattas annorlunda än i ett ISK.
 - **Universumet** (dagens storbolag i `app/universe.py`) bör uppdateras ungefär en gång per år.
 

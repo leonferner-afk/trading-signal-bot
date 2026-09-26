@@ -65,6 +65,7 @@ jobs:
           ROTATION_MOMENTUM: ${{ vars.ROTATION_MOMENTUM }}
           ROTATION_REBALANCE: ${{ vars.ROTATION_REBALANCE }}
           BOT_SHARE_PCT: ${{ vars.BOT_SHARE_PCT }}
+          FEE_BPS: ${{ vars.FEE_BPS }}
         run: python -m app.cli daily --report-dir "$REPORT_DIR"
       - name: Save journal and reports
         if: always() && !inputs.dry_run
