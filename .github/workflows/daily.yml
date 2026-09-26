@@ -46,6 +46,12 @@ jobs:
           MAX_OPEN_POSITIONS: ${{ vars.MAX_OPEN_POSITIONS }}
           MAX_NEW_BUYS_PER_DAY: ${{ vars.MAX_NEW_BUYS_PER_DAY }}
           MAX_POSITION_PCT: ${{ vars.MAX_POSITION_PCT }}
+          POLICY_MODE: ${{ vars.POLICY_MODE }}
+          ROTATION_UNIVERSE: ${{ vars.ROTATION_UNIVERSE }}
+          ROTATION_MAX_POSITIONS: ${{ vars.ROTATION_MAX_POSITIONS }}
+          ROTATION_EXIT_RS: ${{ vars.ROTATION_EXIT_RS }}
+          ROTATION_REGIME_EXIT: ${{ vars.ROTATION_REGIME_EXIT }}
+          ROTATION_STOP_PCT: ${{ vars.ROTATION_STOP_PCT }}
         run: python -m app.cli daily --report-dir "$GITHUB_WORKSPACE/state/reports"
       - name: Save journal and reports
         if: always()
