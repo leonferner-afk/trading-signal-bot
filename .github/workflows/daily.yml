@@ -11,6 +11,10 @@ on:
         description: "Dry run: real data and the real journal (copied), but no notifications and nothing saved"
         type: boolean
         default: false
+      fresh_journal:
+        description: "Dry run only: start from an empty journal (exercises a full decision day)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -38,7 +42,7 @@ jobs:
           cache-dependency-path: backend/requirements.txt
       - run: pip install -r backend/requirements.txt
       - name: Copy the journal for a dry run
-        if: inputs.dry_run
+        if: inputs.dry_run && !inputs.fresh_journal
         run: cp state/tradingbot.db /tmp/dry.db 2>/dev/null || true
       - name: Scan, update positions, report, notify
         working-directory: backend
