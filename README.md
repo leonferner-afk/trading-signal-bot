@@ -122,6 +122,26 @@ signalstrategiernas tajming *sämre* än slumpvisa köpdagar under samma
 filter. Läget finns kvar (`POLICY_MODE=swing`) för jämförelse, men det är
 inte standard.
 
+## Raketer (stora kurslyft på hög volym) — testat och förkastat
+
+Strategin köper dagen efter ett kurslyft på ≥ 8 % eller ≥ 15 % på minst 3 gånger normal volym, med stark stängning och
+pris över 5 $. Den håller med ett släpande stopp på 15 % eller 25 %, i högst 40 dagar. Den prövades mot
+förhandsbestämda krav, i jämförelse med **slumpvisa köp i samma aktier med samma säljregel**, 2016–2026 (0,20 % avgift):
+
+| | Snitt per affär | Slumpköp, samma aktier | t-värde mot slump | Portfölj/år | Största nedgång | Sista perioden |
+|---|---|---|---|---|---|---|
+| +8 %, stopp 15 % | +4,0 % | +2,3 % | −0,2 | +15,6 % | −48 % | −16,1 %/år |
+| +15 %, stopp 25 % | +6,8 % | +3,0 % | 0,6 | +14,9 % | −60 % | −11,2 %/år |
+| SPY | | | | +15,7 % | −34 % | |
+
+**Resultat:**
+- **Mot slumpen:** raketdagen gav ingen mätbar fördel mot att köpa samma aktier på en slumpvis dag. Portföljavkastningen kom från aktielistan, inte från signalen.
+- **Storbolag:** bland storbolagen från 2015 var raketköpen *sämre* än slumpen.
+- **Risk:** nedgångarna blev mycket större än index, och den senaste perioden var negativ.
+- **Beroende av några få aktier:** utan de 3 bästa aktierna föll avkastningen till +6–12 %/år.
+
+Ingen variant klarade kraven, så boten skickar inga raketsignaler.
+
 ## Begränsningar — läs detta
 
 - **Historik är ingen garanti.** Strategin har haft långa perioder under index, och dess största nedgång i testet var −29 % (SPY: −34 %).
