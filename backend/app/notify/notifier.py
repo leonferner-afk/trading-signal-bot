@@ -194,7 +194,7 @@ def format_rotation_buy(symbol: str, info: dict, size, params, evidence: dict | 
         f"över sitt 200-dagars snitt.",
         "",
         f"Köp vid börsens öppning (senaste stängning {info['last_close']:g})",
-        f"Storlek: {shares} st ≈ ${cost:,.0f} (mål {size.position_pct_of_portfolio:.0f}% av portföljen = ${size.position_size_usd:,.0f}, "
+        f"Storlek: {shares} st ≈ ${cost:,.0f} (mål {size.position_pct_of_portfolio:.0f}% av botens kapital = ${size.position_size_usd:,.0f}, "
         f"en av max {params.max_positions} positioner)",
     ]
     if params.stop_pct:

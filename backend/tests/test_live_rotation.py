@@ -127,3 +127,18 @@ def test_gate_warning_when_research_no_longer_supports_the_rule():
         {"name": params.name, "passes": False, "checks": {"ranking_beats_random": False, "drawdown_close_to_spy": True}}]}}
     msg = gate_status(bad, params)
     assert "slumpvis" in msg and "S&P 500-fond" in msg
+
+
+def test_bot_share_limits_the_capital_the_rotation_sizes_from(monkeypatch):
+    from app.config import settings
+    from app.live_rotation import bot_capital, capital_line
+    from app.runtime_settings import get_effective_settings
+
+    total = get_effective_settings().portfolio_size_usd
+    import dataclasses
+
+    monkeypatch.setattr("app.config.settings", dataclasses.replace(settings, bot_share_pct=30.0))
+    assert bot_capital() == pytest.approx(total * 0.3)
+    assert "S&P 500-fond" in capital_line()
+    monkeypatch.setattr("app.config.settings", dataclasses.replace(settings, bot_share_pct=100.0))
+    assert bot_capital() == pytest.approx(total) and "fond" not in capital_line()

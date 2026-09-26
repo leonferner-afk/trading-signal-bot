@@ -131,6 +131,23 @@ def gate_status(evidence: dict | None, params: RotationParams) -> str | None:
     return None
 
 
+def bot_capital() -> float:
+    """The part of the portfolio the rotation manages."""
+    from app.config import settings
+
+    return get_effective_settings().portfolio_size_usd * min(max(settings.bot_share_pct, 0.0), 100.0) / 100.0
+
+
+def capital_line() -> str:
+    from app.config import settings
+
+    total = get_effective_settings().portfolio_size_usd
+    if settings.bot_share_pct >= 100:
+        return f"${total:,.0f}"
+    return (f"botens del ${bot_capital():,.0f} ({settings.bot_share_pct:g} % av ${total:,.0f}) — "
+            f"resten ${total - bot_capital():,.0f} ligger i en S&P 500-fond som boten inte rör")
+
+
 def equal_weight_size(price: float, portfolio: float, params: RotationParams, free: float) -> PositionSize:
     target = portfolio / params.max_positions
     notional = max(0.0, min(target, free))
@@ -190,7 +207,7 @@ def run_rotation_day(client: StockClient, universe: list[str], spy: pd.DataFrame
         notify_rotation_sell(record, reason, mark)
         sell_rows.append((record, reason, mark))
 
-    portfolio = live.portfolio_size_usd
+    portfolio = bot_capital()
     kept = len(holding) - len(sells)
     free = portfolio - kept * portfolio / params.max_positions
     ev = rotation_evidence(evidence, params)
@@ -230,7 +247,7 @@ def build_rotation_report(today: str, session: str | None, new_session: bool, pa
         f"**Marknaden:** SPY {market} sitt 200-dagars snitt"
         + (" — inga nya köp förrän den är över igen" if f is not None and not f.spy_above_200 else ""),
         f"**Strategi:** momentum-rotation — {params.name}",
-        f"**Portfölj:** ${live.portfolio_size_usd:,.0f} · {len(open_positions)}/{params.max_positions} innehav · "
+        f"**Portfölj:** {capital_line()} · {len(open_positions)}/{params.max_positions} innehav · "
         f"senaste handelsdag i datan: {session or 'okänd'}",
         "",
     ] + ([f"> {gate_status(evidence, params)}", ""] if gate_status(evidence, params) else []) + [
@@ -250,7 +267,7 @@ def build_rotation_report(today: str, session: str | None, new_session: bool, pa
 
     if day.too_expensive:
         lines.append(f"- Hoppade över {', '.join(day.too_expensive)}: en enda aktie kostar mer än dubbla positionsstorleken "
-                     f"(${live.portfolio_size_usd / params.max_positions:,.0f}). Höj PORTFOLIO_SIZE_USD om din portfölj är större.")
+                     f"(${bot_capital() / params.max_positions:,.0f}). Höj PORTFOLIO_SIZE_USD eller BOT_SHARE_PCT om din portfölj är större.")
     lines += ["", f"## 🔴 SÄLJ ({len(day.sells)})"]
     if not day.sells:
         lines.append("Inga säljsignaler idag.")

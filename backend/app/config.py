@@ -132,6 +132,9 @@ class Settings:
     # No single position larger than this share of the portfolio, however
     # tight its stop (a 1% stop at 1% risk would otherwise mean 100%).
     max_position_pct: float = float(_env("MAX_POSITION_PCT", "25"))
+    # Share of PORTFOLIO_SIZE_USD the rotation manages; the rest is meant to
+    # sit in a broad index fund (the bot never trades that part).
+    bot_share_pct: float = float(_env("BOT_SHARE_PCT", "100"))
 
 
 settings = Settings()
