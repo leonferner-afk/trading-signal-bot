@@ -26,7 +26,7 @@ from app.notify.notifier import notify_entry
 from app.paper_trading.simulator import SKIPPED_GAP, current_mark, run_paper_trading_update
 from app.policy import (LivePolicy, active_mode, active_policy, active_rotation_params, active_rotation_universe,
                         evidence_for, load_evidence)
-from app.risk.position_sizing import PositionSize, compute_position_size
+from app.risk.position_sizing import PositionSize, compute_position_size, whole_shares
 from app.runtime_settings import get_effective_settings
 from app.scanner.scanner import ANCHOR_SYMBOL, ScanResult, run_scan
 from app.scoring.score import Signal
@@ -146,7 +146,7 @@ def build_report(
             f"- **Köp** vid öppning (senaste stängning {signal.entry:g})",
             f"- **Stop-loss** {signal.stop:g} (−{signal.risk_pct:.1f}%) — lägg som stop-order direkt",
             f"- **Mål** {signal.target:g} (+{signal.reward_pct:.1f}%) — lägg som limit-säljorder direkt",
-            f"- **Storlek** ≈ {int(size.units) if size.units >= 1 else round(size.units, 3)} st ({_fmt_money(size.position_size_usd)}, "
+            f"- **Storlek** {whole_shares(size.position_size_usd, signal.entry)[0]} st ≈ {_fmt_money(whole_shares(size.position_size_usd, signal.entry)[1])} ("
             f"{size.position_pct_of_portfolio:.0f}% av portföljen) → max förlust vid stop ≈ {_fmt_money(size.risk_amount_usd)}",
             f"- **Varför:** " + "; ".join(signal.reasons),
         ]

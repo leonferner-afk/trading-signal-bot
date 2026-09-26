@@ -53,3 +53,14 @@ def compute_position_size(
         position_pct_of_portfolio=round(position_size_usd / portfolio_size_usd * 100, 2) if portfolio_size_usd > 0 else 0.0,
         units=round(units, 8),
     )
+
+
+def whole_shares(position_usd: float, price: float) -> tuple[int, float]:
+    """Most Swedish brokers don't sell fractional US shares: the nearest
+    whole number of shares and what that actually costs. (0, 0.0) when even
+    one share costs more than twice the intended position — buying it would
+    make the position far larger than the rule allows."""
+    if price <= 0 or position_usd <= 0 or price > 2 * position_usd:
+        return 0, 0.0
+    shares = max(1, round(position_usd / price))
+    return shares, round(shares * price, 2)

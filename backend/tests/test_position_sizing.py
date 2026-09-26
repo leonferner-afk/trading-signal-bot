@@ -42,3 +42,13 @@ def test_position_is_capped_by_max_share_and_free_capital():
     size = compute_position_size(entry=100, stop=95, portfolio_size_usd=10000, risk_per_trade_pct=1.0,
                                  max_position_pct=25, available_usd=1000)
     assert size.position_size_usd == 1000.0 and size.units == 10.0
+
+
+def test_whole_shares_rounds_to_the_nearest_share():
+    from app.risk.position_sizing import whole_shares
+
+    assert whole_shares(1250, 630.63) == (2, 1261.26)   # not 1 share = half the intended amount
+    assert whole_shares(1250, 1082.28) == (1, 1082.28)
+    assert whole_shares(1250, 2400) == (1, 2400)        # at least one share while it's within 2x the target
+    assert whole_shares(1250, 5000) == (0, 0.0)         # one share would be 4x the position: not bought
+    assert whole_shares(0, 10) == (0, 0.0)

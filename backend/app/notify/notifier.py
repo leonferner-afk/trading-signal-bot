@@ -69,7 +69,9 @@ def format_entry_message(signal: Signal, historical_probability: dict | None = N
     if size is None:
         size = compute_position_size(signal.entry, signal.stop, live.portfolio_size_usd, live.risk_per_trade_pct,
                                      settings.max_position_pct)
-    shares = int(size.units) if size.units >= 1 else round(size.units, 3)
+    from app.risk.position_sizing import whole_shares
+
+    shares, cost = whole_shares(size.position_size_usd, signal.entry)
 
     lines = [
         f"🟢 KÖP NU — {signal.symbol}",
@@ -80,7 +82,7 @@ def format_entry_message(signal: Signal, historical_probability: dict | None = N
         f"Mål: {signal.target:g} (+{signal.reward_pct:.1f}%) ← lägg som limit-säljorder direkt vid köp",
         f"R/R: {signal.rr_ratio:.1f} · Säljs senast efter 90 handelsdagar om inget nås",
         "",
-        f"Storlek: {shares} st ≈ ${size.position_size_usd:,.0f} ({size.position_pct_of_portfolio:.0f}% av portföljen) "
+        f"Storlek: {shares} st ≈ ${cost:,.0f} ({size.position_pct_of_portfolio:.0f}% av portföljen) "
         f"→ max förlust vid stop ≈ ${size.risk_amount_usd:,.0f} "
         f"({size.risk_amount_usd / live.portfolio_size_usd * 100 if live.portfolio_size_usd else 0:.1f}% av ${live.portfolio_size_usd:,.0f})",
         "",
@@ -183,14 +185,16 @@ notify = notify_entry
 # ---------------------------------------------------------------------------
 
 def format_rotation_buy(symbol: str, info: dict, size, params, evidence: dict | None, warning: str | None = None) -> str:
-    shares = int(size.units) if size.units >= 1 else round(size.units, 3)
+    from app.risk.position_sizing import whole_shares
+
+    shares, cost = whole_shares(size.position_size_usd, info["last_close"])
     lines = [
         f"🟢 KÖP NU — {symbol}",
         f"Trendledare: +{info['ret_6m'] * 100:.0f}% senaste 6 mån, starkare än {info['rs'] * 100:.0f}% av {info['universe']} aktier, "
         f"över sitt 200-dagars snitt.",
         "",
         f"Köp vid börsens öppning (senaste stängning {info['last_close']:g})",
-        f"Storlek: {shares} st ≈ ${size.position_size_usd:,.0f} ({size.position_pct_of_portfolio:.0f}% av portföljen, "
+        f"Storlek: {shares} st ≈ ${cost:,.0f} (mål {size.position_pct_of_portfolio:.0f}% av portföljen = ${size.position_size_usd:,.0f}, "
         f"en av max {params.max_positions} positioner)",
     ]
     if params.stop_pct:

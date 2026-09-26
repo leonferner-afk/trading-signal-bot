@@ -21,7 +21,7 @@ from app.journal import repository as journal
 from app.notify import github_issue, telegram_client
 from app.notify.notifier import notify_rotation_buy, notify_rotation_sell
 from app.paper_trading.simulator import ROTATION_EXIT, SKIPPED_GAP, current_mark, run_paper_trading_update
-from app.risk.position_sizing import PositionSize
+from app.risk.position_sizing import PositionSize, whole_shares
 from app.rotation import RS_LOOKBACK, RotationParams, decide
 from app.runtime_settings import get_effective_settings
 from app.scanner.scanner import ANCHOR_SYMBOL, _drop_unclosed_bar
@@ -141,6 +141,7 @@ class RotationDay:
     closed: list[dict]                              # positions closed since last run (fills known)
     next_up: list[str]
     features: Features | None
+    too_expensive: list[str] = field(default_factory=list)
 
 
 def run_rotation_day(client: StockClient, universe: list[str], spy: pd.DataFrame, params: RotationParams,
@@ -172,10 +173,14 @@ def run_rotation_day(client: StockClient, universe: list[str], spy: pd.DataFrame
     free = portfolio - kept * portfolio / params.max_positions
     ev = rotation_evidence(evidence, params)
     buy_rows = []
+    too_expensive: list[str] = []
     for symbol in buys:
         price = features.last_close[symbol]
         size = equal_weight_size(price, portfolio, params, free)
         if size.position_size_usd < portfolio * MIN_POSITION_PCT / 100:
+            continue
+        if whole_shares(size.position_size_usd, price)[0] == 0:
+            too_expensive.append(symbol)
             continue
         free -= size.position_size_usd
         info = {"rs": features.rs[symbol], "ret_6m": features.ret_6m[symbol], "last_close": price,
@@ -189,7 +194,7 @@ def run_rotation_day(client: StockClient, universe: list[str], spy: pd.DataFrame
     bought = {s for s, _ in buy_rows} | {r.symbol for r in holding}
     ranked = sorted((s for s, v in features.rs.items() if v >= params.entry_rs and features.above_200.get(s) and s not in bought),
                     key=lambda s: features.rs[s], reverse=True)
-    return RotationDay(buy_rows, sell_rows, closed, ranked[:8], features)
+    return RotationDay(buy_rows, sell_rows, closed, ranked[:8], features, too_expensive)
 
 
 def build_rotation_report(today: str, session: str | None, new_session: bool, params: RotationParams, day: RotationDay,
@@ -214,11 +219,14 @@ def build_rotation_report(today: str, session: str | None, new_session: bool, pa
     elif not day.buys:
         lines.append("Inga nya köp idag." + (" Alla platser är fyllda." if len(open_positions) >= params.max_positions else ""))
     for symbol, size in day.buys:
-        shares = int(size.units) if size.units >= 1 else round(size.units, 3)
+        shares, cost = whole_shares(size.position_size_usd, f.last_close[symbol])
         lines.append(f"- **{symbol}** — +{f.ret_6m[symbol] * 100:.0f}% på 6 mån (starkare än {f.rs[symbol] * 100:.0f}% av "
-                     f"{len(f.rs)} aktier). Köp vid öppning, ≈ {shares} st (${size.position_size_usd:,.0f})"
+                     f"{len(f.rs)} aktier). Köp vid öppning, {shares} st ≈ ${cost:,.0f} (senaste stängning {f.last_close[symbol]:g})"
                      + (f", stop-order {params.stop_pct * 100:g}% under köppriset" if params.stop_pct else "") + ".")
 
+    if day.too_expensive:
+        lines.append(f"- Hoppade över {', '.join(day.too_expensive)}: en enda aktie kostar mer än dubbla positionsstorleken "
+                     f"(${live.portfolio_size_usd / params.max_positions:,.0f}). Höj PORTFOLIO_SIZE_USD om din portfölj är större.")
     lines += ["", f"## 🔴 SÄLJ ({len(day.sells)})"]
     if not day.sells:
         lines.append("Inga säljsignaler idag.")
