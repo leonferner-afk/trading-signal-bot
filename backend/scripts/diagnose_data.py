@@ -84,6 +84,19 @@ def probe_app_client() -> None:
         _row("app StockClient.get_klines NVDA 1d", False, traceback.format_exc(limit=2).replace("\n", " | "))
 
 
+def probe_fx() -> None:
+    """USD/SEK, used only by the hypothetical-SEK tracker (app/hypothetical.py)."""
+    try:
+        from app.data.stock_client import StockClient
+
+        with StockClient() as c:
+            df = c.get_klines("USDSEK=X", "1d", limit=30)
+        ok = not df.empty and df["close"].iloc[-1] > 0
+        _row("app StockClient.get_klines USDSEK=X 1d", ok, f"{len(df)} rows, last={df['close_time'].iloc[-1]} close={df['close'].iloc[-1] if ok else '?'}")
+    except Exception:
+        _row("app StockClient.get_klines USDSEK=X 1d", False, traceback.format_exc(limit=2).replace("\n", " | "))
+
+
 if __name__ == "__main__":
     import yfinance
 
@@ -93,3 +106,4 @@ if __name__ == "__main__":
     probe_stooq()
     probe_twelvedata()
     probe_app_client()
+    probe_fx()
