@@ -1,0 +1,59 @@
+{
+  "base_sek": 1000.0,
+  "total_sek": 986.41,
+  "delta_sek": -13.59,
+  "delta_pct": -1.36,
+  "since": "2026-09-25",
+  "fx_missing": 0,
+  "message": "\ud83d\udcb0 Hypotetiska 1 000 kr (sedan 2026-09-25): **986 kr** (-14 kr, -1.4%)\nAMD -2.3%, MU -0.4%, INTC -3.4%, CRWD +1.0%, PANW -1.9%, HOOD -1.7%, ANET -1.8%, LRCX -0.4%",
+  "positions": [
+    {
+      "symbol": "AMD",
+      "status": "open",
+      "usd_return_pct": -2.33,
+      "sek_return_pct": -2.273
+    },
+    {
+      "symbol": "MU",
+      "status": "open",
+      "usd_return_pct": -0.43,
+      "sek_return_pct": -0.372
+    },
+    {
+      "symbol": "INTC",
+      "status": "open",
+      "usd_return_pct": -3.48,
+      "sek_return_pct": -3.424
+    },
+    {
+      "symbol": "CRWD",
+      "status": "open",
+      "usd_return_pct": 1.02,
+      "sek_return_pct": 1.02
+    },
+    {
+      "symbol": "PANW",
+      "status": "open",
+      "usd_return_pct": -1.88,
+      "sek_return_pct": -1.88
+    },
+    {
+      "symbol": "HOOD",
+      "status": "open",
+      "usd_return_pct": -1.68,
+      "sek_return_pct": -1.68
+    },
+    {
+      "symbol": "ANET",
+      "status": "open",
+      "usd_return_pct": -1.83,
+      "sek_return_pct": -1.83
+    },
+    {
+      "symbol": "LRCX",
+      "status": "open",
+      "usd_return_pct": -0.43,
+      "sek_return_pct": -0.43
+    }
+  ]
+}
