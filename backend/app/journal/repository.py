@@ -339,3 +339,11 @@ def rocket_paper_summary() -> dict:
         return {"n": 0}
     rets = [r.return_pct for r in closed]
     return {"n": len(rets), "win_rate": sum(x > 0 for x in rets) / len(rets), "avg_ret_pct": sum(rets) / len(rets)}
+
+
+def rotation_records() -> list[SignalRecord]:
+    """Every live rotation trade ever taken (open or closed), oldest
+    first — the full history app.hypothetical needs to replay."""
+    with get_session() as session:
+        stmt = select(SignalRecord).where(SignalRecord.strategy == ROTATION).order_by(SignalRecord.timestamp)
+        return list(session.scalars(stmt))
