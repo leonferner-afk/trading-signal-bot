@@ -84,7 +84,7 @@ jobs:
           DB_PATH: ${{ github.workspace }}/state/tradingbot.db
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           HYPOTHETICAL_BASE_SEK: ${{ vars.HYPOTHETICAL_BASE_SEK }}
-        run: python -m app.cli hypothetical --base-sek "${HYPOTHETICAL_BASE_SEK:-1000}" --out "$GITHUB_WORKSPACE/state/hypothetical.json"
+        run: python -m app.cli hypothetical --base-sek "${HYPOTHETICAL_BASE_SEK:-10000}" --out "$GITHUB_WORKSPACE/state/hypothetical.json"
       - name: Save journal and reports
         if: always() && !inputs.dry_run
         working-directory: state

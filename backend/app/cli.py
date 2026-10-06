@@ -2,7 +2,7 @@
 
     python -m app.cli research      [--years 10] [--out research_output]
     python -m app.cli daily         [--report-dir reports]
-    python -m app.cli hypothetical  [--base-sek 1000] [--out hypothetical.json]
+    python -m app.cli hypothetical  [--base-sek 10000] [--out hypothetical.json]
 """
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ def cmd_daily(args: argparse.Namespace) -> int:
 
 def cmd_hypothetical(args: argparse.Namespace) -> int:
     """Prints (and optionally writes as JSON) "if you'd put base-sek kronor
-    into the live rotation on day one" — informational only, no real money.
+    (default 10 000) into the live rotation on day one" — informational only, no real money.
     See app/hypothetical.py for exactly what it does and doesn't assume."""
     import json
 
@@ -109,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     daily.set_defaults(func=cmd_daily)
 
     hypothetical = sub.add_parser("hypothetical", help="informational: what a fixed SEK stake in the live rotation would be worth today")
-    hypothetical.add_argument("--base-sek", type=float, default=1000.0)
+    hypothetical.add_argument("--base-sek", type=float, default=10000.0)
     hypothetical.add_argument("--out", default="", help="optional path to write a JSON summary")
     hypothetical.set_defaults(func=cmd_hypothetical)
 

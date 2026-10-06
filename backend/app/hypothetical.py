@@ -1,4 +1,4 @@
-"""A hypothetical, informational-only SEK tracker: "if you'd put 1000 kr
+"""A hypothetical, informational-only SEK tracker: "if you'd put 10 000 kr
 into this exact live rotation strategy on day one, what would it be worth
 today?" No real money is involved — this exists purely so a Swedish user
 can follow the strategy's real performance in kronor without opening an
@@ -86,7 +86,7 @@ def evaluate_position(record: SignalRecord, mark: dict | None, fx: pd.DataFrame,
 
 
 def hypothetical_value(records: list[SignalRecord], marks: dict[str, dict | None], fx: pd.DataFrame,
-                       base_sek: float = 1000.0, max_positions: int = 8,
+                       base_sek: float = 10000.0, max_positions: int = 8,
                        now: pd.Timestamp | None = None) -> HypotheticalResult:
     """`records`: every rotation SignalRecord ever created (open or
     closed) — a slot's par value is untouched until its own trade resolves,
