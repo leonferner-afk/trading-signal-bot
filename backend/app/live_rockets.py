@@ -1,11 +1,20 @@
 """Earnings rockets, live — PAPER ONLY until they prove themselves.
 
 Exactly the research rule (app.rockets, variant PAPER_PARAMS): a company
-beat analysts' EPS estimate and the stock rose >= 10% from the close before
-the report to the close of the second session after it. The bot then
+beat analysts' EPS estimate by a wide margin, the stock rose sharply from
+the close before the report to the close of the second session after it,
+confirmed by heavy volume, in a stock that was already a relative-strength
+leader (same 6-month percentile app.rotation ranks by). The bot then
 follows the position as if bought at the next open, with a 25% trailing
 stop on closes and at most 60 sessions — without anyone risking money.
 Every month of this is data the backtest never saw.
+
+This is the strictest variant research has tested (2026-10-06): better win
+rate, average trade and drawdown than the looser variants it replaced, but
+it still hasn't cleared every pre-registered gate (the edge over random
+entries in the same stocks isn't statistically significant yet, and it
+leans on a handful of its best trades) — which is exactly why this stays
+paper-only rather than real money.
 """
 from __future__ import annotations
 
@@ -13,16 +22,18 @@ import logging
 import math
 from dataclasses import dataclass, field
 
+import numpy as np
 import pandas as pd
 
 from app.data.stock_client import DataUnavailable, StockClient
 from app.journal import repository as journal
 from app.rockets import EARNINGS_MAX_HOLD, EARNINGS_TRAIL, EarningsParams, eligible, event_features
+from app.rotation import RS_LOOKBACK
 from app.scanner.scanner import _drop_unclosed_bar
 
 logger = logging.getLogger("tradingbot.rockets")
 
-PAPER_PARAMS = EarningsParams(min_surprise_pct=0.0, min_reaction=0.10)
+PAPER_PARAMS = EarningsParams(min_surprise_pct=20.0, min_reaction=0.10, min_volume_ratio=2.0, min_rs=0.8)
 
 
 def latest_surprise(symbol: str, before: pd.Timestamp, not_before: pd.Timestamp) -> tuple[float, pd.Timestamp] | None:
@@ -58,12 +69,20 @@ class RocketDay:
 
 def find_rockets(client: StockClient, universe: list[str], session_close: pd.Timestamp,
                  params: EarningsParams = PAPER_PARAMS, surprise_lookup=latest_surprise) -> RocketDay:
-    """Price filter on every stock first (cheap), the earnings lookup only
-    for the few that jumped. Signal session d1 = today's session; the report
-    must fall between the close of d1-2 and the close of d1-1 (so d1-1 is
-    the first session to react), exactly as in the research."""
+    """Price + volume + relative-strength filter on every stock first
+    (cheap, no network beyond the price data already fetched), the earnings
+    lookup only for the few survivors. Signal session d1 = today's session;
+    the report must fall between the close of d1-2 and the close of d1-1
+    (so d1-1 is the first session to react), exactly as in the research.
+
+    Relative strength is a cross-sectional percentile computed over the
+    whole universe checked today (app.rotation's own 6-month definition),
+    so it means the same thing live as it did in the backtest. A stock
+    without 6+ months of history has unknown RS and is never guessed at."""
     day = RocketDay()
     open_symbols = {r.symbol for r in journal.get_open_signals() if r.strategy == journal.ROCKET_PAPER}
+    candidates: dict[str, dict] = {}
+    ret_6m: dict[str, float] = {}
     for symbol in universe:
         try:
             df = _drop_unclosed_bar(client.get_klines(symbol, "1d", limit=400), 0)
@@ -73,11 +92,26 @@ def find_rockets(client: StockClient, universe: list[str], session_close: pd.Tim
             continue
         day.checked += 1
         closes = df["close"].to_numpy(float)
+        if len(df) > RS_LOOKBACK:
+            ret_6m[symbol] = float(closes[-1] / closes[-1 - RS_LOOKBACK] - 1)
         reaction = closes[-1] / closes[-3] - 1
         if reaction < params.min_reaction or not bool(eligible(event_features(df)).iloc[-1]):
             continue
+        if params.min_volume_ratio > 0:
+            vol_ratio = event_features(df)["volume_ratio"].to_numpy(float)
+            best_vol = np.nanmax(vol_ratio[-2:])
+            if not (np.isfinite(best_vol) and best_vol >= params.min_volume_ratio):
+                continue
+        candidates[symbol] = {"reaction": float(reaction), "last_close": float(closes[-1]), "close_time": df["close_time"]}
+
+    rs = pd.Series(ret_6m, dtype=float).rank(pct=True) if ret_6m else pd.Series(dtype=float)
+    for symbol, c in candidates.items():
+        if params.min_rs > 0:
+            rs_val = rs.get(symbol)
+            if rs_val is None or rs_val < params.min_rs:
+                continue
         day.candidates += 1
-        ct = df["close_time"]
+        ct = c["close_time"]
         found = surprise_lookup(symbol, before=ct.iloc[-2], not_before=ct.iloc[-3])
         if found is None:
             day.no_report.append(symbol)
@@ -85,8 +119,8 @@ def find_rockets(client: StockClient, universe: list[str], session_close: pd.Tim
         surprise, announced = found
         if surprise <= params.min_surprise_pct or symbol in open_symbols:
             continue
-        day.new.append({"symbol": symbol, "reaction": float(reaction), "surprise_pct": surprise,
-                        "announced": announced.isoformat(), "last_close": float(closes[-1]),
+        day.new.append({"symbol": symbol, "reaction": c["reaction"], "surprise_pct": surprise,
+                        "announced": announced.isoformat(), "last_close": c["last_close"],
                         "timestamp": session_close.isoformat()})
     day.new.sort(key=lambda r: r["surprise_pct"], reverse=True)
     return day
