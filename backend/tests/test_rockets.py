@@ -95,3 +95,59 @@ def test_earnings_rocket_needs_a_beat_and_a_price_reaction():
     assert r["hold_bars"] == rk.EARNINGS_MAX_HOLD
     assert rk.earnings_rows("X", df, dates, miss, rk.EarningsParams(0.0, 0.10)) == []       # missed estimates
     assert rk.earnings_rows("X", df, dates, beat, rk.EarningsParams(25.0, 0.10)) == []      # surprise too small
+
+
+def test_earnings_rocket_volume_confirmation():
+    n = 120
+    days = pd.bdate_range("2025-01-01", periods=n)
+    close_time = (days.tz_localize("America/New_York") + pd.Timedelta(hours=16)).tz_convert("UTC")
+    closes = np.full(n, 20.0)
+    closes[31], closes[32] = 21.0, 22.4
+    closes[33:] = 22.4
+    volume = np.full(n, 1e6)
+    df = pd.DataFrame({"open": closes, "high": closes * 1.01, "low": closes * 0.99, "close": closes,
+                       "volume": volume, "close_time": close_time})
+    dates = days.strftime("%Y-%m-%d").to_numpy()
+    after_close = days[30].tz_localize("America/New_York") + pd.Timedelta(hours=16, minutes=30)
+    beat = pd.DataFrame({"surprise_pct": [20.0]}, index=[after_close])
+
+    strict = rk.EarningsParams(0.0, 0.10, min_volume_ratio=2.0)
+    assert rk.earnings_rows("X", df, dates, beat, strict) == []     # flat volume -> no confirmation
+
+    volume2 = volume.copy()
+    volume2[32] = 3e6   # the reaction day trades at 3x normal volume
+    df2 = df.assign(volume=volume2)
+    rows = rk.earnings_rows("X", df2, dates, beat, strict)
+    assert len(rows) == 1
+
+
+def test_earnings_rocket_requires_relative_strength_when_configured():
+    n = 120
+    days = pd.bdate_range("2025-01-01", periods=n)
+    close_time = (days.tz_localize("America/New_York") + pd.Timedelta(hours=16)).tz_convert("UTC")
+    closes = np.full(n, 20.0)
+    closes[31], closes[32] = 21.0, 22.4
+    closes[33:] = 22.4
+    df = pd.DataFrame({"open": closes, "high": closes * 1.01, "low": closes * 0.99, "close": closes,
+                       "volume": 1e6, "close_time": close_time})
+    dates = days.strftime("%Y-%m-%d").to_numpy()
+    after_close = days[30].tz_localize("America/New_York") + pd.Timedelta(hours=16, minutes=30)
+    beat = pd.DataFrame({"surprise_pct": [20.0]}, index=[after_close])
+    strict = rk.EarningsParams(0.0, 0.10, min_rs=0.8)
+
+    assert rk.earnings_rows("X", df, dates, beat, strict, rs={dates[32]: 0.5}) == []   # too weak
+    assert rk.earnings_rows("X", df, dates, beat, strict, rs={}) == []                 # unknown -> never guessed
+    rows = rk.earnings_rows("X", df, dates, beat, strict, rs={dates[32]: 0.9})
+    assert len(rows) == 1
+
+
+def test_rs_percentiles_matches_rotations_own_definition():
+    from app.rotation import RS_LOOKBACK
+
+    n = RS_LOOKBACK + 5
+    dates = [f"2025-{(i // 28) + 1:02d}-{(i % 28) + 1:02d}" for i in range(n)]
+    strong = pd.DataFrame({"close": np.linspace(100, 200, n)})   # doubled
+    weak = pd.DataFrame({"close": np.linspace(100, 110, n)})     # +10%
+    out = rk.rs_percentiles({"A": strong, "B": weak}, {"A": np.array(dates), "B": np.array(dates)})
+    last = dates[-1]
+    assert out["A"][last] == 1.0 and out["B"][last] == 0.5

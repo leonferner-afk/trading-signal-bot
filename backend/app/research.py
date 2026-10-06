@@ -646,8 +646,10 @@ def rocket_results(raw: dict[str, pd.DataFrame], largecap: set[str], spy_closes:
     if earnings:
         base_e = [r for s in earnings if s in frames for r in rk.earnings_baseline_rows(s, frames[s], dates[s])]
         base_e = rk.with_costs(pd.DataFrame(base_e), COST_BPS_PRIMARY) if base_e else pd.DataFrame()
+        rs_by_symbol = rk.rs_percentiles(frames, dates) if any(ep.min_rs > 0 for ep in rk.EARNINGS_GRID) else {}
         for ep in rk.EARNINGS_GRID:
-            rows = [r for s, e in earnings.items() if s in frames for r in rk.earnings_rows(s, frames[s], dates[s], e, ep)]
+            rows = [r for s, e in earnings.items() if s in frames
+                    for r in rk.earnings_rows(s, frames[s], dates[s], e, ep, rs_by_symbol.get(s))]
             variants.append(evaluate(ep.name, ep.__dict__, rows, base_e))
 
     for params in rk.GRID:

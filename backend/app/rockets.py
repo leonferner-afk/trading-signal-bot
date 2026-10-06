@@ -194,13 +194,27 @@ EARNINGS_TRAIL = 0.25
 class EarningsParams:
     min_surprise_pct: float = 0.0   # EPS surprise in percent (> this)
     min_reaction: float = 0.05      # 2-session price reaction
+    min_volume_ratio: float = 0.0   # 0 = no extra volume requirement beyond `eligible()`
+    min_rs: float = 0.0             # 0 = no requirement; else 6-month RS percentile (0-1) at entry
 
     @property
     def name(self) -> str:
-        return f"EPS surprise>{self.min_surprise_pct:g}%, reaction>={self.min_reaction * 100:g}%"
+        parts = [f"EPS surprise>{self.min_surprise_pct:g}%", f"reaction>={self.min_reaction * 100:g}%"]
+        if self.min_volume_ratio > 0:
+            parts.append(f"volume>={self.min_volume_ratio:g}x")
+        if self.min_rs > 0:
+            parts.append(f"RS>={self.min_rs:g}")
+        return ", ".join(parts)
 
 
-EARNINGS_GRID = [EarningsParams(s, r) for s in (0.0, 10.0) for r in (0.05, 0.10)]
+EARNINGS_GRID = [EarningsParams(s, r) for s in (0.0, 10.0) for r in (0.05, 0.10)] + [
+    # Stricter, "clearer" rockets: a bigger beat, a bigger reaction confirmed
+    # by heavy volume (not just the price move), in a stock that was already
+    # a relative-strength leader going in. Fewer signals, each one meant to
+    # be more trustworthy — still paper-only until this clears the gates.
+    EarningsParams(min_surprise_pct=20.0, min_reaction=0.10, min_volume_ratio=2.0, min_rs=0.8),
+    EarningsParams(min_surprise_pct=20.0, min_reaction=0.15, min_volume_ratio=2.0, min_rs=0.8),
+]
 
 
 def fetch_earnings(symbols: list[str], sleep: float = 0.3) -> tuple[dict[str, pd.DataFrame], dict[str, str]]:
@@ -226,10 +240,16 @@ def fetch_earnings(symbols: list[str], sleep: float = 0.3) -> tuple[dict[str, pd
 
 
 def earnings_rows(symbol: str, df: pd.DataFrame, dates: np.ndarray, earnings: pd.DataFrame,
-                  params: EarningsParams) -> list[dict]:
+                  params: EarningsParams, rs: dict[str, float] | None = None) -> list[dict]:
+    """`rs`: {date_str: cross-sectional 6-month relative-strength percentile}
+    for this symbol, from `rs_percentiles()` — only needed when `params.min_rs
+    > 0`. A date missing from `rs` is treated as RS unknown, never guessed,
+    so the row is dropped rather than assumed to pass."""
     close_time = df["close_time"]
     opens, closes = df["open"].to_numpy(float), df["close"].to_numpy(float)
-    ok = eligible(event_features(df)).to_numpy()
+    feat = event_features(df)
+    ok = eligible(feat).to_numpy()
+    vol_ratio = feat["volume_ratio"].to_numpy(float)
     rows = []
     for ts, e in earnings.iterrows():
         ts = pd.Timestamp(ts)
@@ -244,6 +264,15 @@ def earnings_rows(symbol: str, df: pd.DataFrame, dates: np.ndarray, earnings: pd
         reaction = closes[d1] / closes[d0 - 1] - 1
         if not (e["surprise_pct"] > params.min_surprise_pct and reaction >= params.min_reaction):
             continue
+        if params.min_volume_ratio > 0:
+            # Confirmed by volume on either reaction session, not just the price move.
+            best_vol = np.nanmax(vol_ratio[d0:d1 + 1])
+            if not (np.isfinite(best_vol) and best_vol >= params.min_volume_ratio):
+                continue
+        if params.min_rs > 0:
+            rs_val = (rs or {}).get(dates[d1])
+            if rs_val is None or rs_val < params.min_rs:
+                continue
         ex = trailing_exit(opens, closes, d1, EARNINGS_TRAIL, EARNINGS_MAX_HOLD)
         if ex is None:
             continue
@@ -256,6 +285,21 @@ def earnings_rows(symbol: str, df: pd.DataFrame, dates: np.ndarray, earnings: pd
             "stop_dist_pct": EARNINGS_TRAIL * 100,
         })
     return rows
+
+
+def rs_percentiles(frames: dict[str, pd.DataFrame], dates: dict[str, np.ndarray]) -> dict[str, dict[str, float]]:
+    """Cross-sectional 6-month-return percentile (0-1, 1 = strongest) per
+    symbol per session date — the exact same definition the live rotation
+    ranks by (app.rotation.RS_LOOKBACK, kind="6m"), so a `min_rs` here means
+    what it says: "already a relative-strength leader by the rotation's own
+    yardstick", not a bespoke one invented just for rockets."""
+    from app.rotation import RS_LOOKBACK
+
+    all_dates = sorted(set().union(*(set(d) for d in dates.values()))) if dates else []
+    wide = pd.DataFrame({s: pd.Series(df["close"].to_numpy(float), index=dates[s]) for s, df in frames.items()})
+    wide = wide.reindex(all_dates)
+    rs = (wide / wide.shift(RS_LOOKBACK) - 1).rank(axis=1, pct=True)
+    return {s: rs[s].dropna().to_dict() for s in frames}
 
 
 def earnings_baseline_rows(symbol: str, df: pd.DataFrame, dates: np.ndarray) -> list[dict]:
