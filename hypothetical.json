@@ -1,59 +1,59 @@
 {
   "base_sek": 10000.0,
-  "total_sek": 9810.79,
-  "delta_sek": -189.21,
-  "delta_pct": -1.89,
+  "total_sek": 9891.73,
+  "delta_sek": -108.28,
+  "delta_pct": -1.08,
   "since": "2026-09-25",
   "fx_missing": 0,
-  "message": "\ud83d\udcb0 Hypotetiska 10 000 kr (sedan 2026-09-25): **9 811 kr** (-189 kr, -1.9%)\nAMD +0.0%, MU -3.1%, INTC -10.7%, CRWD +2.9%, PANW +2.8%, HOOD -9.4%, ANET +2.5%, LRCX -0.3%",
+  "message": "\ud83d\udcb0 Hypotetiska 10 000 kr (sedan 2026-09-25): **9 892 kr** (-108 kr, -1.1%)\nAMD -2.4%, MU -4.0%, INTC -12.9%, CRWD +7.2%, PANW +7.7%, HOOD -8.0%, ANET +5.0%, LRCX -1.2%",
   "positions": [
     {
       "symbol": "AMD",
       "status": "open",
-      "usd_return_pct": -0.68,
-      "sek_return_pct": 0.014
+      "usd_return_pct": -2.69,
+      "sek_return_pct": -2.352
     },
     {
       "symbol": "MU",
       "status": "open",
-      "usd_return_pct": -3.73,
-      "sek_return_pct": -3.058
+      "usd_return_pct": -4.37,
+      "sek_return_pct": -4.038
     },
     {
       "symbol": "INTC",
       "status": "open",
-      "usd_return_pct": -11.27,
-      "sek_return_pct": -10.65
+      "usd_return_pct": -13.24,
+      "sek_return_pct": -12.939
     },
     {
       "symbol": "CRWD",
       "status": "open",
-      "usd_return_pct": 2.26,
-      "sek_return_pct": 2.914
+      "usd_return_pct": 6.94,
+      "sek_return_pct": 7.248
     },
     {
       "symbol": "PANW",
       "status": "open",
-      "usd_return_pct": 2.15,
-      "sek_return_pct": 2.803
+      "usd_return_pct": 7.35,
+      "sek_return_pct": 7.659
     },
     {
       "symbol": "HOOD",
       "status": "open",
-      "usd_return_pct": -9.95,
-      "sek_return_pct": -9.374
+      "usd_return_pct": -8.26,
+      "sek_return_pct": -7.996
     },
     {
       "symbol": "ANET",
       "status": "open",
-      "usd_return_pct": 1.87,
-      "sek_return_pct": 2.521
+      "usd_return_pct": 4.65,
+      "sek_return_pct": 4.952
     },
     {
       "symbol": "LRCX",
       "status": "open",
-      "usd_return_pct": -0.94,
-      "sek_return_pct": -0.307
+      "usd_return_pct": -1.48,
+      "sek_return_pct": -1.196
     }
   ]
 }
