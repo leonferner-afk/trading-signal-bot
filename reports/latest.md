@@ -1,31 +1,32 @@
-# Tradingbot 2026-10-15
+# Tradingbot 2026-10-16
 
 **Marknaden:** SPY över sitt 200-dagars snitt
 **Strategi:** momentum-rotation — top8, in RS>=0.8, out RS<0.5
-**Portfölj:** $10,000 · 8/8 innehav · senaste handelsdag i datan: 2026-10-14
+**Portfölj:** $10,000 · 9/8 innehav · senaste handelsdag i datan: 2026-10-15
 
 > ⚠ Reglerna klarar inte forskningens förhandsbestämda krav (slår inte SPY riskjusterat). Ingen testad variant har slagit att bara äga en S&P 500-fond riskjusterat — se signalerna som ett aktivt alternativ med ungefär indexlik historik, inte som en bevisad fördel.
 
-## 🟢 KÖP (0)
-Inga nya köp idag. Alla platser är fyllda.
+## 🟢 KÖP (1)
+- **NOW** — +54% på 6 mån (starkare än 96% av 106 aktier). Köp vid öppning, 8 st ≈ $1,189 (senaste stängning 148.57).
 
-## 🔴 SÄLJ (0)
-Inga säljsignaler idag.
+## 🔴 SÄLJ (1)
+- **LRCX** — sälj vid öppning: aktien stängde under sitt 200-dagars snitt (-14.3% hittills).
 
-## 📊 Innehav (8/8)
+## 📊 Innehav (9/8)
 | Aktie | Köpt | Senast | Resultat | Rel. styrka nu | Dagar |
 |---|---|---|---|---|---|
-| AMD | 624.9 | 570.82 | -8.7% | 98% | 13 |
-| MU | 1075.81 | 914.13 | -15.0% | 97% | 13 |
-| INTC | 120.68 | 98.12 | -18.7% | 96% | 13 |
-| CRWD | 257.19 | 249.29 | -3.1% | 100% | 12 |
-| PANW | 390.1 | 375.04 | -3.9% | 99% | 12 |
-| HOOD | 118.83 | 101.08 | -14.9% | 71% | 12 |
-| ANET | 207.1 | 195.42 | -5.6% | 80% | 12 |
-| LRCX | 323.63 | 286.92 | -11.3% | 57% | 12 |
+| AMD | 624.9 | 562.23 | -10.0% | 97% | 14 |
+| MU | 1075.81 | 931.24 | -13.4% | 98% | 14 |
+| INTC | 120.68 | 95.37 | -21.0% | 92% | 14 |
+| CRWD | 257.19 | 244.57 | -4.9% | 100% | 13 |
+| PANW | 390.1 | 370.27 | -5.1% | 99% | 13 |
+| HOOD | 118.83 | 103.99 | -12.5% | 76% | 13 |
+| ANET | 207.1 | 185.58 | -10.4% | 70% | 13 |
+| LRCX (säljs vid öppning) | 323.63 | 277.46 | -14.3% | 51% | 13 |
+| NOW | köps vid nästa öppning | 148.57 | — | 96% | 0 |
 
 ## 👀 Näst på tur
-Starkast av de som uppfyller köpreglerna men inte fick plats: NOW, ADP, PLTR, CSCO, ABBV, SHOP, LLY, CRM.
+Starkast av de som uppfyller köpreglerna men inte fick plats: ADP, PLTR, SHOP, LLY, ABBV, CRM, TMO, QCOM.
 
 ## 📈 Resultat hittills (papperstrading, riktiga fyllnadspriser, avgifter inräknade)
 Inga stängda affärer ännu.
@@ -40,6 +41,6 @@ Kontrollerade 278 aktier: 0 steg ≥ 10% på två dagar, 0 efter en rapport som 
 
 | Raket | 'Köpt' | Senast | Resultat | Dagar |
 |---|---|---|---|---|
-| CCL | 24.66 | 25.97 | +5.3% | 10 |
+| CCL | 24.66 | 26.46 | +7.3% | 11 |
 
 Inga avslutade pappersraketer ännu.

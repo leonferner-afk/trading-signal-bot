@@ -1,59 +1,65 @@
 {
   "base_sek": 10000.0,
-  "total_sek": 9012.26,
-  "delta_sek": -987.74,
-  "delta_pct": -9.88,
+  "total_sek": 8902.41,
+  "delta_sek": -1097.59,
+  "delta_pct": -10.98,
   "since": "2026-09-25",
   "fx_missing": 0,
-  "message": "\ud83d\udcb0 Hypotetiska 10 000 kr (sedan 2026-09-25): **9 012 kr** (-988 kr, -9.9%)\nAMD -8.3%, MU -14.7%, INTC -18.4%, CRWD -2.8%, PANW -3.6%, HOOD -14.7%, ANET -5.4%, LRCX -11.1%",
+  "message": "\ud83d\udcb0 Hypotetiska 10 000 kr (sedan 2026-09-25): **8 902 kr** (-1 098 kr, -11.0%)\nAMD -9.5%, MU -12.9%, INTC -20.5%, CRWD -4.4%, PANW -4.6%, HOOD -12.0%, ANET -9.9%, LRCX -13.8%\nV\u00e4ntar p\u00e5 f\u00f6rsta \u00f6ppning: NOW.",
   "positions": [
     {
       "symbol": "AMD",
       "status": "open",
-      "usd_return_pct": -8.65,
-      "sek_return_pct": -8.336
+      "usd_return_pct": -10.03,
+      "sek_return_pct": -9.517
     },
     {
       "symbol": "MU",
       "status": "open",
-      "usd_return_pct": -15.03,
-      "sek_return_pct": -14.738
+      "usd_return_pct": -13.44,
+      "sek_return_pct": -12.946
     },
     {
       "symbol": "INTC",
       "status": "open",
-      "usd_return_pct": -18.69,
-      "sek_return_pct": -18.41
+      "usd_return_pct": -20.97,
+      "sek_return_pct": -20.519
     },
     {
       "symbol": "CRWD",
       "status": "open",
-      "usd_return_pct": -3.07,
-      "sek_return_pct": -2.794
+      "usd_return_pct": -4.91,
+      "sek_return_pct": -4.424
     },
     {
       "symbol": "PANW",
       "status": "open",
-      "usd_return_pct": -3.86,
-      "sek_return_pct": -3.586
+      "usd_return_pct": -5.08,
+      "sek_return_pct": -4.595
     },
     {
       "symbol": "HOOD",
       "status": "open",
-      "usd_return_pct": -14.94,
-      "sek_return_pct": -14.697
+      "usd_return_pct": -12.49,
+      "sek_return_pct": -12.042
     },
     {
       "symbol": "ANET",
       "status": "open",
-      "usd_return_pct": -5.64,
-      "sek_return_pct": -5.371
+      "usd_return_pct": -10.39,
+      "sek_return_pct": -9.932
     },
     {
       "symbol": "LRCX",
       "status": "open",
-      "usd_return_pct": -11.34,
-      "sek_return_pct": -11.087
+      "usd_return_pct": -14.27,
+      "sek_return_pct": -13.832
+    },
+    {
+      "symbol": "NOW",
+      "status": "pending",
+      "usd_return_pct": null,
+      "sek_return_pct": null
     }
   ]
 }
