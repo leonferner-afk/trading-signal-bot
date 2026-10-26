@@ -9,7 +9,7 @@ import json
 
 from sqlalchemy import select
 
-from app.db import BacktestRun, BotRun, SignalRecord, get_session
+from app.db import AppSettingsRow, BacktestRun, BotRun, SignalRecord, get_session
 from app.scoring.score import Signal
 
 
@@ -314,15 +314,18 @@ def mark_exit_signal(record_id: int, timestamp: str, reason: str) -> None:
 
 
 ROCKET_PAPER = "rocket_paper"
+ROCKET_POT_TIER = "POT"   # a rocket bought with real lekpott money (r["pot_shares"] set)
 
 
 def save_rocket_paper(r: dict, evidence: dict | None) -> int:
-    """A paper-only earnings rocket (never counted as a real position)."""
+    """An earnings rocket: tier POT when it was sized from the lekpott, else
+    PAPER. Either way never counted in the rotation's results."""
     with get_session() as session:
         record = SignalRecord(
             timestamp=r["timestamp"], symbol=r["symbol"], direction="LONG", strategy=ROCKET_PAPER,
             entry=r["last_close"], target=0.0, stop=0.0, risk_pct=0.0, reward_pct=0.0, rr_ratio=0.0,
-            score=round(r["surprise_pct"], 1), tier="PAPER", market_regime="earnings rocket", market_wide_risk="UNKNOWN",
+            score=round(r["surprise_pct"], 1), tier=ROCKET_POT_TIER if r.get("pot_shares") else "PAPER",
+            market_regime="earnings rocket", market_wide_risk="UNKNOWN",
             features_json=json.dumps(r), news_json=json.dumps({}), historical_probability_json=json.dumps(evidence or {}),
             result="OPEN",
         )
@@ -339,6 +342,31 @@ def rocket_paper_summary() -> dict:
         return {"n": 0}
     rets = [r.return_pct for r in closed]
     return {"n": len(rets), "win_rate": sum(x > 0 for x in rets) / len(rets), "avg_ret_pct": sum(rets) / len(rets)}
+
+
+def rocket_pot_records() -> list[SignalRecord]:
+    """Every lekpott rocket (open or closed), oldest first."""
+    with get_session() as session:
+        stmt = select(SignalRecord).where(SignalRecord.strategy == ROCKET_PAPER, SignalRecord.tier == ROCKET_POT_TIER) \
+            .order_by(SignalRecord.timestamp)
+        return list(session.scalars(stmt))
+
+
+def rocket_pot_paused_at() -> str | None:
+    with get_session() as session:
+        row = session.get(AppSettingsRow, 1)
+        return row.rocket_pot_paused_at if row else None
+
+
+def set_rocket_pot_paused(at: str | None) -> None:
+    """`at` = when the pot hit its pause level; None resumes new pot buys."""
+    with get_session() as session:
+        row = session.get(AppSettingsRow, 1)
+        if row is None:
+            row = AppSettingsRow(id=1)
+            session.add(row)
+        row.rocket_pot_paused_at = at
+        session.commit()
 
 
 def rotation_records() -> list[SignalRecord]:

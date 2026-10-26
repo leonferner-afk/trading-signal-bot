@@ -103,6 +103,8 @@ delen av fördelen.
 |---|---|---|
 | `PORTFOLIO_SIZE_USD` (variabel) | 10000 | Hela portföljens värde i USD |
 | `BOT_SHARE_PCT` (variabel) | 100 | Andel av portföljen som boten förvaltar (resten: indexfond) |
+| `ROCKET_POT_PCT` (variabel) | 20 i `daily.yml` (0 i koden) | Lekpott: andel av portföljen som följer raketregeln med riktiga pengar. Tas från botens del. `0` = raketer bara på papper |
+| `ROCKET_POT_PAUSE_PCT` (variabel) | 30 | Nya lekpottsköp pausas när lekpotten har tappat så här mycket, tills pausen hävs medvetet |
 | `FEE_BPS` (variabel) | 15 | Courtage per affär i punkter; sätt 35 om du handlar från SEK-konto |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (secrets) | — | Notiser även i Telegram: skapa en bot via @BotFather, skriv till den, hämta chat-id via `https://api.telegram.org/bot<token>/getUpdates` |
 | `TWELVE_DATA_API_KEY` (secret) | — | Reservkälla för kursdata om Yahoo strular (gratis nyckel) |
@@ -148,7 +150,15 @@ förhandsbestämda krav, i jämförelse med **slumpvisa köp i samma aktier med 
 - **Bland storbolagen från 2015:** fördel mot slumpen.
 - **Mot slumpköp i samma aktier:** fördelen på +1,7 % per affär är **inte statistiskt säkerställd** (t = 0,9 i träning och validering, 1,6 över hela perioden, kravet är 2). Den är dessutom den bästa av 8 testade varianter, vilket överskattar den.
 
-Ingen variant klarade alla krav, så boten skickar inga raketsignaler för riktiga pengar.
+Ingen variant klarade alla krav.
+
+**Lekpott (på sedan 2026-10-26, ägarens val):** trots att regeln inte är bevisad följer 20 % av portföljen den
+strängaste raketvarianten med riktiga pengar. Boten skickar **"🚀 RAKET (lekpott, hög risk) — KÖP XYZ"** med antal
+aktier (10 % av lekpotten per raket, högst 10 samtidigt, högst 3 nya per dag, hela aktier) och
+**"🔴 SÄLJ NU (lekpott)"** dagen då aktien stänger 25 % under sin högsta stängning eller har hållits i 60
+handelsdagar. Rotationen förvaltar då de övriga 80 %. Om lekpotten tappar 30 % pausas nya lekpottsköp tills
+pausen hävs medvetet (`journal.set_rocket_pot_paused(None)`); öppna raketer säljs som vanligt. Raketer som inte får
+plats i lekpotten följs fortfarande på papper.
 
 **Papperstrading (pågår):** den bästa rapportraketen följs live utan pengar. Varje ny börsdag letar boten efter
 aktier som stigit ≥ 10 % på två dagar efter en rapport som slog förväntningarna, och skickar då

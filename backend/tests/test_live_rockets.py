@@ -140,3 +140,116 @@ def test_live_paper_params_match_the_research_variant_name():
     from app.live_rockets import PAPER_PARAMS
 
     assert PAPER_PARAMS.name == "EPS surprise>20%, reaction>=10%, volume>=2x, RS>=0.8"
+
+
+# ---------------------------------------------------------------------------
+# Lekpott (real-money rockets) — sizing, sell alerts, pause rule, capital split
+# ---------------------------------------------------------------------------
+
+def _pot_settings(monkeypatch, pot_pct=20.0, pause_pct=30.0):
+    import dataclasses
+
+    from app.config import settings
+    monkeypatch.setattr("app.config.settings", dataclasses.replace(settings, rocket_pot_pct=pot_pct,
+                                                                   rocket_pot_pause_pct=pause_pct, bot_share_pct=100.0))
+
+
+def test_pot_takes_its_share_out_of_the_rotation(monkeypatch):
+    from app.live_rotation import bot_capital, capital_line, rocket_pot_capital
+    from app.runtime_settings import get_effective_settings
+
+    total = get_effective_settings().portfolio_size_usd
+    _pot_settings(monkeypatch, pot_pct=20.0)
+    assert rocket_pot_capital() == pytest.approx(total * 0.2)
+    assert bot_capital() == pytest.approx(total * 0.8)
+    assert "lekpott" in capital_line()
+    _pot_settings(monkeypatch, pot_pct=0.0)
+    assert rocket_pot_capital() == 0 and bot_capital() == pytest.approx(total)
+
+
+def test_allocate_pot_sizes_whole_shares_and_keeps_the_rest_on_paper():
+    from app.live_rockets import RocketPot, allocate_pot
+
+    pot = RocketPot(capital=2000.0)          # slot = 10% = $200
+    new = [{"symbol": "A", "last_close": 50.0}, {"symbol": "B", "last_close": 900.0},
+           {"symbol": "C", "last_close": 120.0}, {"symbol": "D", "last_close": 10.0}, {"symbol": "E", "last_close": 10.0}]
+    allocate_pot(new, pot)
+    assert (new[0]["pot_shares"], new[0]["pot_usd"]) == (4, 200.0)
+    assert "pot_shares" not in new[1] and "dubbla" in new[1]["paper_reason"]      # one share > 2x the slot
+    assert new[2]["pot_shares"] == 2 and new[3]["pot_shares"] == 20
+    assert "pot_shares" not in new[4] and "per dag" in new[4]["paper_reason"]     # max 3 new per day
+
+    full = RocketPot(capital=2000.0, open_count=10)
+    one = [{"symbol": "A", "last_close": 50.0}]
+    allocate_pot(one, full)
+    assert "pot_shares" not in one[0] and "redan 10" in one[0]["paper_reason"]
+
+    paused = RocketPot(capital=2000.0, return_pct=-31.0, paused=True)
+    one = [{"symbol": "A", "last_close": 50.0}]
+    allocate_pot(one, paused)
+    assert "pot_shares" not in one[0] and "pausad" in one[0]["paper_reason"]
+
+    none = [{"symbol": "A", "last_close": 50.0}]
+    allocate_pot(none, RocketPot(capital=0.0))
+    assert none == [{"symbol": "A", "last_close": 50.0}]                        # no pot -> untouched (paper)
+
+
+def test_pot_buy_message_says_how_much_to_buy_and_warns():
+    r = {"symbol": "RKT", "surprise_pct": 25.0, "reaction": 0.13, "last_close": 22.6, "pot_shares": 9, "pot_usd": 203.4}
+    msg = format_rocket_buy(r, None)
+    assert msg.startswith("🚀 RAKET (lekpott, hög risk) — KÖP RKT")
+    assert "9 st ≈ $203" in msg and "inte bevisad" in msg and "köp inte" not in msg
+    paper = format_rocket_buy({**{k: v for k, v in r.items() if not k.startswith("pot_")}, "paper_reason": "lekpotten är pausad"}, None)
+    assert paper.startswith("🚀 RAKET (papper — köp inte)") and "lekpotten är pausad" in paper
+
+
+class _Rec:
+    def __init__(self, id, result="OPEN", return_pct=None, timestamp=None, tier="POT"):
+        self.id, self.result, self.return_pct, self.timestamp, self.tier = id, result, return_pct, timestamp, tier
+
+
+def test_pot_return_banks_closed_and_marks_open_slots():
+    from app.live_rockets import pot_return_pct
+
+    records = [_Rec(1, "ROCKET_TRAIL", -20.0), _Rec(2, "ROCKET_TIME", 50.0), _Rec(3), _Rec(4)]
+    marks = {3: {"fill_price": 10.0, "unrealized_pct": -10.0}, 4: {"fill_price": None, "unrealized_pct": None}}
+    # 10% slots: -2 + 5 - 1 + 0 (not filled yet)
+    assert pot_return_pct(records, marks) == pytest.approx(2.0)
+
+
+def test_pot_sell_signal_follows_the_research_trailing_rule():
+    from app.live_rockets import pot_sell_signal
+
+    closes = [20.0, 21.0, 30.0, 28.0, 22.4]   # fill at the open after bar 0; peak close 30 -> 22.5 is the line
+    df = _frame(closes)
+    rec = _Rec(1, timestamp=df["close_time"].iloc[0].isoformat())
+    assert "under sin högsta" in pot_sell_signal(df, rec)
+    assert pot_sell_signal(_frame(closes[:4]), rec) is None                      # 28 is only 7% under the peak
+    long_hold = _frame([20.0] + [21.0] * 60)
+    assert "60 handelsdagar" in pot_sell_signal(long_hold, _Rec(1, timestamp=long_hold["close_time"].iloc[0].isoformat()))
+
+
+def test_pot_pause_is_sticky_until_resumed(clean_journal, monkeypatch):
+    from app.live_rockets import rocket_pot_state
+
+    _pot_settings(monkeypatch, pot_pct=20.0, pause_pct=30.0)
+    journal.set_rocket_pot_paused(None)
+    ids = [journal.save_rocket_paper({"symbol": s, "timestamp": "2026-10-01T20:00:00+00:00", "last_close": 10.0,
+                                      "surprise_pct": 30.0, "pot_shares": 20}, None) for s in ("A", "B", "C", "D")]
+    marks = {i: {"fill_price": 10.0, "unrealized_pct": -80.0} for i in ids}      # 4 slots x 10% x -80% = -32%
+    pot = rocket_pot_state(lambda r: marks[r.id])
+    assert pot.paused and pot.return_pct == pytest.approx(-32.0) and pot.open_count == 4
+    assert journal.rocket_pot_paused_at() is not None
+
+    recovered = {i: {"fill_price": 10.0, "unrealized_pct": 0.0} for i in ids}
+    assert rocket_pot_state(lambda r: recovered[r.id]).paused                    # stays paused until resumed on purpose
+    journal.set_rocket_pot_paused(None)
+    assert not rocket_pot_state(lambda r: recovered[r.id]).paused
+
+
+def test_closed_headline_separates_pot_from_paper():
+    from app.daily import _rocket_closed_headline
+
+    assert _rocket_closed_headline([{"symbol": "RKT", "return_pct": 12.4, "tier": "POT"},
+                                    {"symbol": "ABC", "return_pct": -8.0, "tier": "PAPER"}]) == \
+        "🚀 avslutad (lekpott) RKT +12% · 🚀 avslutad (papper) ABC -8%"

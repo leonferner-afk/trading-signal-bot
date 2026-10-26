@@ -71,6 +71,10 @@ jobs:
           ROTATION_REBALANCE: ${{ vars.ROTATION_REBALANCE }}
           BOT_SHARE_PCT: ${{ vars.BOT_SHARE_PCT }}
           ROCKETS_MODE: ${{ vars.ROCKETS_MODE }}
+          # The owner chose (2026-10-26) a 20 % high-risk lekpott that follows
+          # the unproven earnings-rocket rule with real money, pausing at -30 %.
+          ROCKET_POT_PCT: ${{ vars.ROCKET_POT_PCT || '20' }}
+          ROCKET_POT_PAUSE_PCT: ${{ vars.ROCKET_POT_PAUSE_PCT || '30' }}
           FEE_BPS: ${{ vars.FEE_BPS }}
         run: python -m app.cli daily --report-dir "$REPORT_DIR"
       - name: Compute the hypothetical SEK tracker

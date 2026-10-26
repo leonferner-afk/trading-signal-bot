@@ -135,6 +135,10 @@ class AppSettingsRow(Base):
     portfolio_size_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     risk_per_trade_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # Bot state rather than a user override: set when the rocket pot hit its
+    # pause level; new pot buys stay stopped until it's cleared on purpose.
+    rocket_pot_paused_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
 
 _engine = create_engine(f"sqlite:///{settings.db_path}", future=True)
 SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False, future=True)

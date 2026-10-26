@@ -217,7 +217,7 @@ def run_paper_trading_update(interval: str | None = None, client: StockClient | 
             _deliver(format_rocket_close(record, update))
         elif update["result"] != SKIPPED_GAP and update["result"] != ROTATION_EXIT:
             notify_exit(record, update)
-        updated.append({"id": record.id, "symbol": record.symbol, "strategy": record.strategy,
+        updated.append({"id": record.id, "symbol": record.symbol, "strategy": record.strategy, "tier": record.tier,
                         **{k: v for k, v in update.items() if k != "closed_at"}})
 
     return {"checked": len(open_records), "updated": updated, "still_open_or_unavailable": unavailable}

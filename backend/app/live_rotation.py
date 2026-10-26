@@ -131,21 +131,38 @@ def gate_status(evidence: dict | None, params: RotationParams) -> str | None:
     return None
 
 
-def bot_capital() -> float:
-    """The part of the portfolio the rotation manages."""
+def _bot_share_pct() -> float:
     from app.config import settings
 
-    return get_effective_settings().portfolio_size_usd * min(max(settings.bot_share_pct, 0.0), 100.0) / 100.0
+    return min(max(settings.bot_share_pct, 0.0), 100.0)
+
+
+def rocket_pot_capital() -> float:
+    """The high-risk lekpott (earnings rockets with real money), carved out
+    of the bot's share — 0 when rockets are paper-only."""
+    from app.config import settings
+
+    pot_pct = min(max(settings.rocket_pot_pct, 0.0), _bot_share_pct())
+    return get_effective_settings().portfolio_size_usd * pot_pct / 100.0
+
+
+def bot_capital() -> float:
+    """The part of the portfolio the rotation manages (the bot's share minus the lekpott)."""
+    return get_effective_settings().portfolio_size_usd * _bot_share_pct() / 100.0 - rocket_pot_capital()
 
 
 def capital_line() -> str:
-    from app.config import settings
-
     total = get_effective_settings().portfolio_size_usd
-    if settings.bot_share_pct >= 100:
+    pot = rocket_pot_capital()
+    index = total * (100.0 - _bot_share_pct()) / 100.0
+    if not pot and not index:
         return f"${total:,.0f}"
-    return (f"botens del ${bot_capital():,.0f} ({settings.bot_share_pct:g} % av ${total:,.0f}) — "
-            f"resten ${total - bot_capital():,.0f} ligger i en S&P 500-fond som boten inte rör")
+    parts = [f"rotationen ${bot_capital():,.0f}"]
+    if pot:
+        parts.append(f"lekpott (raketer, hög risk) ${pot:,.0f}")
+    if index:
+        parts.append(f"S&P 500-fond ${index:,.0f} som boten inte rör")
+    return f"${total:,.0f}: " + " · ".join(parts)
 
 
 def equal_weight_size(price: float, portfolio: float, params: RotationParams, free: float) -> PositionSize:

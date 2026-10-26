@@ -272,7 +272,12 @@ def _data_warning(stale: bool, ok: bool, session: str | None) -> str:
 
 
 def _rocket_closed_headline(closed: list[dict]) -> str:
-    return "🚀 avslutad (papper) " + ", ".join(f"{e['symbol']} {e['return_pct']:+.0f}%" for e in closed)
+    parts = []
+    for label, group in (("lekpott", [e for e in closed if e.get("tier") == journal.ROCKET_POT_TIER]),
+                         ("papper", [e for e in closed if e.get("tier") != journal.ROCKET_POT_TIER])):
+        if group:
+            parts.append(f"🚀 avslutad ({label}) " + ", ".join(f"{e['symbol']} {e['return_pct']:+.0f}%" for e in group))
+    return " · ".join(parts)
 
 
 def rockets_mode() -> str:
@@ -286,21 +291,33 @@ def rocket_universe() -> tuple[str, ...]:
     return research_universe()
 
 
-def _run_rocket_paper(client, spy, act: bool, evidence) -> tuple[object | None, list[str]]:
-    """Find today's earnings rockets and start following them on paper."""
-    from app.live_rockets import find_rockets, format_rocket_buy, rocket_evidence
+def _run_rocket_paper(client, spy, act: bool, evidence) -> tuple[object | None, list[str], object | None, list[tuple]]:
+    """Find today's earnings rockets: those that fit in the lekpott (when
+    one is configured and not paused) are real buys, the rest are followed
+    on paper. Also issues the lekpott's sell alerts for the next open.
+    Returns (rocket day, new symbols, pot state, pot sells)."""
+    from app.live_rockets import (allocate_pot, check_pot_sells, find_rockets, format_pot_sell, format_rocket_buy,
+                                  rocket_evidence, rocket_pot_state)
     from app.notify.notifier import _deliver
     from app.scanner.scanner import _drop_unclosed_bar
 
-    if not act or rockets_mode() != "paper" or spy is None:
-        return None, []
+    if rockets_mode() != "paper":
+        return None, [], None, []
+    pot = rocket_pot_state(lambda r: current_mark(client, r))
+    if not act or spy is None:
+        return None, [], pot, []
     session_close = _drop_unclosed_bar(spy, 0)["close_time"].iloc[-1]
+    pot_sells = check_pot_sells(client, session_close) if pot.capital > 0 else []
+    for record, reason, last_close in pot_sells:
+        _deliver(format_pot_sell(record, reason, last_close))
     day = find_rockets(client, list(rocket_universe()), session_close)
+    allocate_pot(day.new, pot)
     ev = rocket_evidence(evidence)
     for r in day.new:
         journal.save_rocket_paper(r, ev)
         _deliver(format_rocket_buy(r, ev))
-    return day, [r["symbol"] for r in day.new]
+    pot.open_count += sum(1 for r in day.new if r.get("pot_shares"))
+    return day, [r["symbol"] for r in day.new], pot, pot_sells
 
 
 def _run_rotation(report_dir, today, client, universe, spy, session, new_session, stale, evidence, last_session=None) -> DailyOutcome:
@@ -312,7 +329,7 @@ def _run_rotation(report_dir, today, client, universe, spy, session, new_session
     act = new_session and not stale
     day = run_rotation_day(client, universe, spy, params, evidence, "UNKNOWN", act, session, last_session)
     ok = not stale and (not act or len(day.features.skipped) < max(10, len(universe) // 2))
-    rocket_day, rockets = _run_rocket_paper(client, spy, act and ok, evidence)
+    rocket_day, rockets, pot, pot_sells = _run_rocket_paper(client, spy, act and ok, evidence)
     open_all = journal.get_open_signals()
     open_positions = [(r, current_mark(client, r)) for r in open_all if r.strategy != journal.ROCKET_PAPER]
     rocket_closed = [e for e in day.closed if e.get("strategy") == journal.ROCKET_PAPER]
@@ -322,12 +339,17 @@ def _run_rotation(report_dir, today, client, universe, spy, session, new_session
     if rockets_mode() == "paper":
         open_rockets = [(r, current_mark(client, r)) for r in open_all if r.strategy == journal.ROCKET_PAPER]
         report += "\n" + "\n".join(build_rocket_section(rocket_day, open_rockets, rocket_closed,
-                                                          journal.rocket_paper_summary(), rocket_evidence(evidence)))
+                                                          journal.rocket_paper_summary(), rocket_evidence(evidence),
+                                                          pot, pot_sells))
     report = _data_warning(stale, ok, session) + report
     stops = [e for e in day.closed if e["result"] not in (SKIPPED_GAP, ROTATION_EXIT)]
     sold = [r.symbol for r, _, _ in day.sells] + [e["symbol"] for e in stops]
+    pot_buys = [r["symbol"] for r in (rocket_day.new if rocket_day else []) if r.get("pot_shares")]
+    paper = [s for s in rockets if s not in pot_buys]
     parts = ([f"KÖP {', '.join(s for s, _ in day.buys)}"] if day.buys else []) + ([f"SÄLJ {', '.join(sold)}"] if sold else []) \
-        + ([f"🚀 RAKET (papper) {', '.join(rockets)}"] if rockets else []) \
+        + ([f"🚀 KÖP {', '.join(pot_buys)} (lekpott)"] if pot_buys else []) \
+        + ([f"🔴 SÄLJ {', '.join(r.symbol for r, _, _ in pot_sells)} (lekpott)"] if pot_sells else []) \
+        + ([f"🚀 RAKET (papper) {', '.join(paper)}"] if paper else []) \
         + ([_rocket_closed_headline(rocket_closed)] if rocket_closed else [])
     issue_url = _write_and_publish(report_dir, today, report, parts, ok)
     if act and ok:

@@ -135,6 +135,13 @@ class Settings:
     # Share of PORTFOLIO_SIZE_USD the rotation manages; the rest is meant to
     # sit in a broad index fund (the bot never trades that part).
     bot_share_pct: float = float(_env("BOT_SHARE_PCT", "100"))
+    # High-risk "lekpott": share of PORTFOLIO_SIZE_USD that follows the
+    # earnings-rocket rule with real money (taken out of the bot's share, so
+    # the rotation gets correspondingly less). 0 = rockets stay paper-only.
+    # The rule has NOT cleared its research gates; the user chose to accept that.
+    rocket_pot_pct: float = float(_env("ROCKET_POT_PCT", "0"))
+    # New pot buys stop (and stay stopped until resumed) once the pot is down this much.
+    rocket_pot_pause_pct: float = float(_env("ROCKET_POT_PAUSE_PCT", "30"))
 
 
 settings = Settings()
