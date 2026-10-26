@@ -38,6 +38,7 @@ class RotationParams:
     max_new_per_day: int = 3
     momentum: str = "6m"           # "6m" | "12-1" | "6m_vol" — see momentum_score()
     rebalance: str = "daily"       # "daily" | "monthly" (first session of each month)
+    max_per_sector: int = 0        # 0 = no cap; else max holdings from one app.universe._GROUPS sector
 
     @property
     def name(self) -> str:
@@ -50,10 +51,26 @@ class RotationParams:
             parts.append({"12-1": "12-1 month momentum", "6m_vol": "volatility-adjusted"}[self.momentum])
         if self.rebalance == "monthly":
             parts.append("monthly")
+        if self.max_per_sector:
+            parts.append(f"max {self.max_per_sector}/sector")
         return ", ".join(parts)
 
 
 MOMENTUM_KINDS = ("6m", "12-1", "6m_vol")
+
+
+def _sector_map() -> dict[str, str]:
+    """symbol -> app.universe._GROUPS key it belongs to (first match).
+    Imported lazily to avoid a module-load cycle."""
+    from app.universe import _GROUPS
+    out: dict[str, str] = {}
+    for sector, tickers in _GROUPS.items():
+        for ticker in tickers.split():
+            out.setdefault(ticker.upper(), sector)
+    return out
+
+
+SECTOR_OF = _sector_map()
 
 
 def momentum_score(close: pd.DataFrame, kind: str) -> pd.DataFrame:
@@ -111,7 +128,21 @@ def decide(
         rng.shuffle(candidates)
     else:
         candidates.sort(key=lambda s: rs[s], reverse=True)
-    return sells, candidates[:slots]
+    if not params.max_per_sector:
+        return sells, candidates[:slots]
+    sector_count: dict[str, int] = {}
+    for s in kept:
+        sector_count[SECTOR_OF.get(s, s)] = sector_count.get(SECTOR_OF.get(s, s), 0) + 1
+    buys = []
+    for s in candidates:
+        if len(buys) >= slots:
+            break
+        sector = SECTOR_OF.get(s, s)
+        if sector_count.get(sector, 0) >= params.max_per_sector:
+            continue
+        buys.append(s)
+        sector_count[sector] = sector_count.get(sector, 0) + 1
+    return sells, buys
 
 
 # --------------------------------------------------------------------------

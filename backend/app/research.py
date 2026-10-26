@@ -104,6 +104,13 @@ ROTATION_GRID = [
     rot.RotationParams(max_positions=8, exit_rs=0.5, max_new_per_day=MAX_NEW_PER_DAY, momentum="12-1"),
     rot.RotationParams(max_positions=8, exit_rs=0.5, max_new_per_day=8, rebalance="monthly"),
     rot.RotationParams(max_positions=8, exit_rs=0.5, max_new_per_day=MAX_NEW_PER_DAY, momentum="6m_vol"),
+    # Sector-diversification variants, added as a pre-registered pair after
+    # the live portfolio ended up concentrated in semis/tech during the
+    # Oct 2026 drawdown. Caps how many of the max_positions slots may come
+    # from the same app.universe._GROUPS sector (AMD/MU/INTC/HOOD/ANET all
+    # sit in two sectors today, which is exactly what a cap prevents).
+    rot.RotationParams(max_positions=8, exit_rs=0.5, max_new_per_day=MAX_NEW_PER_DAY, max_per_sector=2),
+    rot.RotationParams(max_positions=8, exit_rs=0.5, max_new_per_day=MAX_NEW_PER_DAY, max_per_sector=3),
 ]
 ROTATION_RANDOM_RUNS = 20
 

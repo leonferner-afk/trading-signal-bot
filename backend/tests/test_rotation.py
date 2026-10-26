@@ -31,6 +31,24 @@ def test_buys_strongest_eligible_into_free_slots_only_in_bull_market():
     assert [s for s, _ in decide(["H"], rs, above, False, regime)[0]] == ["H"]
 
 
+def test_max_per_sector_caps_how_many_buys_come_from_the_same_sector():
+    # AMD, INTC, MU are all "semis"; JPM is "financials"; AAPL is "megacap_tech"
+    # (see app.universe._GROUPS). Highest RS first: AMD, INTC, MU, JPM, AAPL.
+    rs = {"AMD": 0.99, "INTC": 0.97, "MU": 0.95, "JPM": 0.9, "AAPL": 0.85}
+    above = dict.fromkeys(rs, True)
+    capped = RotationParams(max_positions=5, max_new_per_day=5, max_per_sector=2)
+    sells, buys = decide([], rs, above, True, capped)
+    assert buys == ["AMD", "INTC", "JPM", "AAPL"]   # MU skipped: semis already holds 2 (AMD, INTC)
+
+    # The cap also applies against existing holdings, not just today's buys.
+    sells, buys = decide(["AMD", "INTC"], rs, above, True, capped)
+    assert buys == ["JPM", "AAPL"]   # MU still skipped, semis already full at 2
+
+    # max_per_sector=0 (default) never filters.
+    uncapped = RotationParams(max_positions=5, max_new_per_day=5)
+    assert decide([], rs, above, True, uncapped)[1] == ["AMD", "INTC", "MU", "JPM", "AAPL"]
+
+
 def test_max_new_per_day_and_random_order_uses_same_candidates():
     rs = {s: 0.8 + i / 100 for i, s in enumerate("ABCDEFG")}
     above = dict.fromkeys(rs, True)
