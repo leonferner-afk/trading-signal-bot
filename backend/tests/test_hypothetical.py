@@ -96,3 +96,41 @@ def test_format_message_is_readable_swedish():
     )
     msg = format_hypothetical_message(result, since="2026-09-26")
     assert "Hypotetiska 1 000 kr" in msg and "AMD +10.0%" in msg and "sedan 2026-09-26" in msg
+
+
+def test_restart_counts_held_positions_from_the_restart_close_and_drops_older_trades():
+    since = to_utc("2026-10-26T20:00:00Z")
+    fx = _fx([("2026-09-01", 9.50), ("2026-10-26", 9.40), ("2026-10-28", 9.40)])
+    old_closed = _record("LRCX", "2026-09-26T20:00:00Z", result="ROTATION_EXIT", return_pct=-16.0,
+                         closed_at=dt.datetime(2026, 10, 16, 13, 30))                 # closed before the restart: ignored
+    held = _record("AMD", "2026-09-26T20:00:00Z")                                     # held at restart: from 500 -> 550
+    sold_after = _record("HOOD", "2026-10-01T20:00:00Z", result="ROTATION_EXIT", return_pct=-22.0,
+                         closed_at=dt.datetime(2026, 10, 27, 13, 30))
+    sold_after.exit_price = 90.0                                                      # restart close 100 -> sold at 90
+    new = _record("LLY", "2026-10-26T20:00:00Z")                                      # bought after the restart, as usual
+    marks = {"AMD": {"fill_price": 624.9, "last_close": 550.0, "unrealized_pct": -12.0},
+             "LLY": {"fill_price": 1000.0, "last_close": 1050.0, "unrealized_pct": 5.0}}
+    result = hypothetical_value([old_closed, held, sold_after, new], marks, fx, base_sek=10000.0, max_positions=8,
+                                now=to_utc("2026-10-28T20:00:00Z"), since=since, base_closes={"AMD": 500.0, "HOOD": 100.0})
+    by = {p.symbol: p for p in result.positions}
+    assert "LRCX" not in by
+    assert by["AMD"].sek_return_pct == pytest.approx(10.0)       # 550/500, FX flat since the restart
+    assert by["HOOD"].sek_return_pct == pytest.approx(-10.0)
+    assert by["LLY"].sek_return_pct == pytest.approx((1.05 * (9.40 / 9.40) - 1) * 100)
+    slot = 10000.0 / 8
+    assert result.delta_sek == pytest.approx(slot * (0.10 - 0.10 + 0.05), abs=0.01)
+
+
+def test_restart_with_lekpott_splits_the_stake_and_sizes_rockets_from_the_pot():
+    since = to_utc("2026-10-26T20:00:00Z")
+    fx = _fx([("2026-10-26", 9.40), ("2026-10-30", 9.40)])
+    rocket = _record("RKT", "2026-10-28T20:00:00Z")
+    rocket.id, rocket.strategy, rocket.tier = 7, "rocket_paper", "POT"
+    result = hypothetical_value([], {}, fx, base_sek=10000.0, max_positions=8, now=to_utc("2026-10-30T20:00:00Z"),
+                                since=since, pot_records=[rocket],
+                                pot_marks={7: {"fill_price": 20.0, "last_close": 25.0, "unrealized_pct": 25.0}}, pot_pct=20.0)
+    # Pot = 2 000 kr, one rocket = 10 % of the pot = 200 kr, +25 % -> +50 kr.
+    assert result.delta_sek == pytest.approx(50.0, abs=0.01)
+    msg = format_hypothetical_message(result, since="2026-10-26")
+    assert "Hypotetiska 10 000 kr (sedan 2026-10-26): **10 050 kr**" in msg
+    assert "Rotation 8 000 kr: inga innehav ännu" in msg and "Lekpott 2 000 kr: RKT +25.0%" in msg

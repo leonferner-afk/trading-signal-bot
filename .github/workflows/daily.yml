@@ -88,7 +88,13 @@ jobs:
           DB_PATH: ${{ github.workspace }}/state/tradingbot.db
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           HYPOTHETICAL_BASE_SEK: ${{ vars.HYPOTHETICAL_BASE_SEK }}
-        run: python -m app.cli hypothetical --base-sek "${HYPOTHETICAL_BASE_SEK:-10000}" --out "$GITHUB_WORKSPACE/state/hypothetical.json"
+          # Restarted by the owner with a fresh 10 000 kr at the 2026-10-26 close
+          # (80 % rotation / 20 % lekpott); earlier results are not counted.
+          HYPOTHETICAL_SINCE: ${{ vars.HYPOTHETICAL_SINCE || '2026-10-26T20:00:00+00:00' }}
+          ROCKET_POT_PCT: ${{ vars.ROCKET_POT_PCT || '20' }}
+        run: >-
+          python -m app.cli hypothetical --base-sek "${HYPOTHETICAL_BASE_SEK:-10000}" --since "$HYPOTHETICAL_SINCE"
+          --out "$GITHUB_WORKSPACE/state/hypothetical.json"
       - name: Save journal and reports
         if: always() && !inputs.dry_run
         working-directory: state
