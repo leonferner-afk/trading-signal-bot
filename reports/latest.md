@@ -1,35 +1,37 @@
-# Tradingbot 2026-10-30
+# Tradingbot 2026-10-31
 
 **Marknaden:** SPY över sitt 200-dagars snitt
 **Strategi:** momentum-rotation — top8, in RS>=0.8, out RS<0.5
-**Portfölj:** $10,000: rotationen $8,000 · lekpott (raketer, hög risk) $2,000 · 9/8 innehav · senaste handelsdag i datan: 2026-10-29
+**Portfölj:** $10,000: rotationen $8,000 · lekpott (raketer, hög risk) $2,000 · 8/8 innehav · senaste handelsdag i datan: 2026-10-30
 
 > ⚠ Reglerna klarar inte forskningens förhandsbestämda krav (slår inte SPY riskjusterat). Ingen testad variant har slagit att bara äga en S&P 500-fond riskjusterat — se signalerna som ett aktivt alternativ med ungefär indexlik historik, inte som en bevisad fördel.
 
-## 🟢 KÖP (1)
-- **PLTR** — +41% på 6 mån (starkare än 94% av 106 aktier). Köp vid öppning, 5 st ≈ $982 (senaste stängning 196.42).
+## 🟢 KÖP (0)
+Inga nya köp idag. Alla platser är fyllda.
 
-## 🔴 SÄLJ (1)
-- **NOW** — sälj vid öppning: aktien stängde under sitt 200-dagars snitt (-27.8% hittills).
+## 🔴 SÄLJ (0)
+Inga säljsignaler idag.
 
-## 📊 Innehav (9/8)
+Avslutade sedan förra rapporten:
+- NOW: såld vid öppning, -28.5% efter avgifter (köpt 151.92 → 109.13, 10 handelsdagar)
+
+## 📊 Innehav (8/8)
 | Aktie | Köpt | Senast | Resultat | Rel. styrka nu | Dagar |
 |---|---|---|---|---|---|
-| AMD | 624.9 | 566.42 | -9.4% | 97% | 24 |
-| MU | 1075.81 | 934.27 | -13.2% | 98% | 24 |
-| CRWD | 257.19 | 261.15 | +1.5% | 100% | 23 |
-| PANW | 390.1 | 380.57 | -2.4% | 99% | 23 |
-| NOW (säljs vid öppning) | 151.92 | 109.67 | -27.8% | 78% | 10 |
-| ADP | 296.86 | 286.08 | -3.6% | 92% | 6 |
-| TMO | 672.69 | 709.18 | +5.4% | 96% | 5 |
-| LLY | 1273.5 | 1373.7 | +7.9% | 95% | 3 |
-| PLTR | köps vid nästa öppning | 196.42 | — | 94% | 0 |
+| AMD | 624.9 | 504.8 | -19.2% | 93% | 25 |
+| MU | 1075.81 | 884.74 | -17.8% | 98% | 25 |
+| CRWD | 257.19 | 250.43 | -2.6% | 100% | 24 |
+| PANW | 390.1 | 365.87 | -6.2% | 99% | 24 |
+| ADP | 296.86 | 293.84 | -1.0% | 92% | 7 |
+| TMO | 672.69 | 697 | +3.6% | 97% | 6 |
+| LLY | 1273.5 | 1417.54 | +11.3% | 96% | 4 |
+| PLTR | 193.625 | 184.11 | -4.9% | 87% | 1 |
 
 ## 👀 Näst på tur
-Starkast av de som uppfyller köpreglerna men inte fick plats: ABBV, SHOP, MRK, AMGN, DHR, CRM, MSFT, AAPL.
+Starkast av de som uppfyller köpreglerna men inte fick plats: ABBV, AMGN, MRK, DHR, VRTX, GILD, MA, PM.
 
 ## 📈 Resultat hittills (papperstrading, riktiga fyllnadspriser, avgifter inräknade)
-4 stängda affärer · 0% vinnare · snitt -19.98% per affär
+5 stängda affärer · 0% vinnare · snitt -21.67% per affär
 
 ---
 Backtest av exakt dessa regler (backtest 8.7 år på storbolag valda 2015, samma regler): +16.2%/år, största nedgång -29% — SPY samma period +14.2%/år, största nedgång -34%.
@@ -37,11 +39,13 @@ Universum: 107 aktier (1 utan data idag).
 Boten handlar aldrig åt dig. Historik är ingen garanti — varje affär kan förlora.
 
 ## 🚀 Raketer — lekpott (hög risk, regeln är inte bevisad)
-**Lekpott:** $2,000 → $2,000 (+0.0 %) · 0/10 raketer · $200 per raket.
-Kontrollerade 278 aktier: 2 steg ≥ 10% på två dagar, 0 efter en rapport som slog förväntningarna. Saknar rapportdata: TDOC, CROX.
+**Lekpott:** $2,000 → $2,000 (+0.0 %) · 1/10 raketer · $200 per raket.
+Kontrollerade 278 aktier: 4 steg ≥ 10% på två dagar, 1 efter en rapport som slog förväntningarna. Saknar rapportdata: REGN.
+- **TDOC** — ny: rapport +36% mot förväntan, aktien +24% på två dagar — **KÖP 24 st ≈ $204 vid öppning** (lekpott).
 
 | Raket | Typ | 'Köpt' | Senast | Resultat | Dagar |
 |---|---|---|---|---|---|
-| CCL | papper | 24.66 | 28.84 | +16.9% | 21 |
+| CCL | papper | 24.66 | 28.83 | +16.9% | 22 |
+| TDOC | lekpott | nästa öppning | 8.510000228881836 | — | 0 |
 
 Inga avslutade pappersraketer ännu.

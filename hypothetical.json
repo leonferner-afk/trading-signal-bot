@@ -1,40 +1,40 @@
 {
   "base_sek": 10000.0,
-  "total_sek": 9841.54,
-  "delta_sek": -158.46,
-  "delta_pct": -1.58,
+  "total_sek": 9532.3,
+  "delta_sek": -467.7,
+  "delta_pct": -4.68,
   "since": "2026-10-26",
   "fx_missing": 0,
-  "message": "\ud83d\udcb0 Hypotetiska 10 000 kr (sedan 2026-10-26): **9 842 kr** (-158 kr, -1.6%)\nRotation 8 000 kr: AMD +6.4%, MU +3.2%, CRWD -0.5%, PANW -2.7%, HOOD +2.8% (st\u00e4ngd), NOW -30.8%, ADP -5.2%, TMO +3.3%, LLY +7.6%\nLekpott 2 000 kr: inga raketer \u00e4nnu\nV\u00e4ntar p\u00e5 f\u00f6rsta \u00f6ppning: PLTR.",
+  "message": "\ud83d\udcb0 Hypotetiska 10 000 kr (sedan 2026-10-26): **9 532 kr** (-468 kr, -4.7%)\nRotation 8 000 kr: AMD -5.7%, MU -2.9%, CRWD -5.1%, PANW -7.0%, HOOD +2.8% (st\u00e4ngd), NOW -31.6% (st\u00e4ngd), ADP -3.2%, TMO +1.0%, LLY +10.4%, PLTR -5.5%\nLekpott 2 000 kr: inga raketer \u00e4nnu\nV\u00e4ntar p\u00e5 f\u00f6rsta \u00f6ppning: TDOC.",
   "pot_pct": 20.0,
   "positions": [
     {
       "symbol": "AMD",
       "kind": "rotation",
       "status": "open",
-      "usd_return_pct": 6.614,
-      "sek_return_pct": 6.39
+      "usd_return_pct": -4.984,
+      "sek_return_pct": -5.74
     },
     {
       "symbol": "MU",
       "kind": "rotation",
       "status": "open",
-      "usd_return_pct": 3.383,
-      "sek_return_pct": 3.165
+      "usd_return_pct": -2.098,
+      "sek_return_pct": -2.877
     },
     {
       "symbol": "CRWD",
       "kind": "rotation",
       "status": "open",
-      "usd_return_pct": -0.26,
-      "sek_return_pct": -0.469
+      "usd_return_pct": -4.354,
+      "sek_return_pct": -5.115
     },
     {
       "symbol": "PANW",
       "kind": "rotation",
       "status": "open",
-      "usd_return_pct": -2.533,
-      "sek_return_pct": -2.738
+      "usd_return_pct": -6.298,
+      "sek_return_pct": -7.043
     },
     {
       "symbol": "HOOD",
@@ -46,34 +46,41 @@
     {
       "symbol": "NOW",
       "kind": "rotation",
-      "status": "open",
-      "usd_return_pct": -30.668,
-      "sek_return_pct": -30.813
+      "status": "closed",
+      "usd_return_pct": -31.009,
+      "sek_return_pct": -31.558
     },
     {
       "symbol": "ADP",
       "kind": "rotation",
       "status": "open",
-      "usd_return_pct": -4.995,
-      "sek_return_pct": -5.194
+      "usd_return_pct": -2.418,
+      "sek_return_pct": -3.194
     },
     {
       "symbol": "TMO",
       "kind": "rotation",
       "status": "open",
-      "usd_return_pct": 3.547,
-      "sek_return_pct": 3.329
+      "usd_return_pct": 1.768,
+      "sek_return_pct": 0.959
     },
     {
       "symbol": "LLY",
       "kind": "rotation",
       "status": "open",
-      "usd_return_pct": 7.87,
-      "sek_return_pct": 7.643
+      "usd_return_pct": 11.31,
+      "sek_return_pct": 10.425
     },
     {
       "symbol": "PLTR",
       "kind": "rotation",
+      "status": "open",
+      "usd_return_pct": -4.91,
+      "sek_return_pct": -5.468
+    },
+    {
+      "symbol": "TDOC",
+      "kind": "lekpott",
       "status": "pending",
       "usd_return_pct": null,
       "sek_return_pct": null
