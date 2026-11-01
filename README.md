@@ -83,6 +83,20 @@ på 10 års dagsdata med:
   inte i efterhand. Klarar en variant kraven kan den slås på med `ROTATION_MA50_EXIT=true` (och
   `ROTATION_MA50_AFTER_EXTENSION=0.3`); annars förblir regeln oförändrad. Tidigare prövade fasta stopp på −20 %
   blev sämre (+15,0 % mot +16,2 %/år).
+
+  **Resultat (körning 2026-11-01, kontrollgruppen 2018–2026): båda förkastade.**
+
+  | | Avkastning/år | Största nedgång | Sharpe | Sista perioden |
+  |---|---|---|---|---|
+  | SPY | +14,9 % | −34 % | 0,83 | +15,2 %/år |
+  | Nuvarande regel | +15,9 % | −29 % | 0,76 | +22,4 %/år |
+  | Sälj under 50-dagars | +7,2 % | −25 % | 0,47 | −3,1 %/år |
+  | Sälj under 50-dagars efter +30 % | +10,6 % | −26 % | 0,63 | +5,0 %/år |
+
+  Nedgångarna blev bara något mindre, men avkastningen halverades nästan. Det snabbare säljet slår ut
+  vinnare i vanliga rekyler, och rangordningen slog inte längre slumpen. På hela listan (efterhandsvalda
+  tillväxtaktier) såg 50-dagarsvarianten bra ut (+46 %/år), men det är just den efterhandseffekt som
+  kontrollgruppen finns för att avslöja. Regeln behålls oförändrad.
 - **Den starka sista perioden** (+30,5 % mot +16,7 %) är för kort för att dra slutsatser av.
 
 Boten skriver detta i varje rapport och KÖP-meddelande. Kraven prövas om
