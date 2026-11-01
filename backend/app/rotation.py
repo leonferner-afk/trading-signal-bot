@@ -19,6 +19,13 @@ the live daily run, so the live bot does exactly what was tested:
          into free slots, at most `max_new_per_day` per day
   orders are filled at the next session's open; an optional protective
   stop (`stop_pct` below the fill) is a standing stop order
+
+Optional faster exit (`ma50_exit`): also SELL a holding that closed below
+its 50-day average — with `ma50_after_extension` > 0 only once the holding
+has closed at least that far above its 200-day average at some close since
+its fill (a stock that ran far ahead of its long trend and then turns).
+With the exit on, a BUY also needs a close above the 50-day average, or
+the rule would re-buy what it just sold.
 """
 from __future__ import annotations
 
@@ -39,6 +46,8 @@ class RotationParams:
     momentum: str = "6m"           # "6m" | "12-1" | "6m_vol" — see momentum_score()
     rebalance: str = "daily"       # "daily" | "monthly" (first session of each month)
     max_per_sector: int = 0        # 0 = no cap; else max holdings from one app.universe._GROUPS sector
+    ma50_exit: bool = False        # also sell below the 50-day average (and buy only above it)
+    ma50_after_extension: float = 0.0  # >0: the 50-day exit only after a close this far above the 200-day average
 
     @property
     def name(self) -> str:
@@ -53,6 +62,9 @@ class RotationParams:
             parts.append("monthly")
         if self.max_per_sector:
             parts.append(f"max {self.max_per_sector}/sector")
+        if self.ma50_exit:
+            parts.append(f"sell below 50d after +{self.ma50_after_extension * 100:g}% over 200d"
+                         if self.ma50_after_extension else "sell below 50d")
         return ", ".join(parts)
 
 
@@ -97,12 +109,20 @@ def decide(
     spy_above_200: bool,
     params: RotationParams,
     rng: np.random.Generator | None = None,
+    above_50: dict[str, bool] | None = None,
+    extended: dict[str, bool] | None = None,
 ) -> tuple[list[tuple[str, str]], list[str]]:
     """Returns (sells as (symbol, reason), buys in priority order).
 
     A holding with no data today is kept (never sold on a guess). `rng`
     replaces the RS ranking of buy candidates with a random order — the
-    research's test of whether the ranking itself adds anything."""
+    research's test of whether the ranking itself adds anything.
+    `above_50` (close > 50-day average) and `extended` (holding has closed
+    >= ma50_after_extension above its 200-day average since its fill) are
+    only read when `params.ma50_exit` is on; a missing entry means "unknown":
+    the holding is kept and the stock is not bought."""
+    above_50 = above_50 or {}
+    extended = extended or {}
     sells: list[tuple[str, str]] = []
     for symbol in holdings:
         if params.regime_exit and not spy_above_200:
@@ -111,6 +131,11 @@ def decide(
             continue
         elif not above_200[symbol]:
             sells.append((symbol, "aktien stängde under sitt 200-dagars snitt"))
+        elif (params.ma50_exit and above_50.get(symbol) is False
+              and (not params.ma50_after_extension or extended.get(symbol))):
+            sells.append((symbol, "aktien stängde under sitt 50-dagars snitt"
+                          + (f" efter att ha legat minst {params.ma50_after_extension * 100:g}% över sitt 200-dagars"
+                             if params.ma50_after_extension else "")))
         elif rs[symbol] < params.exit_rs:
             sells.append((symbol, f"relativ styrka föll till {rs[symbol] * 100:.0f}% (gräns {params.exit_rs * 100:.0f}%)"))
 
@@ -123,7 +148,8 @@ def decide(
         return sells, []
     held = set(holdings)
     candidates = [s for s, value in rs.items()
-                  if s not in held and above_200.get(s) and value is not None and value >= params.entry_rs]
+                  if s not in held and above_200.get(s) and value is not None and value >= params.entry_rs
+                  and (not params.ma50_exit or above_50.get(s))]
     if rng is not None:
         rng.shuffle(candidates)
     else:
@@ -165,6 +191,8 @@ class Panel:
     has_bar: np.ndarray    # bool: a real bar exists that day (no forward-fill)
     spy_above_200: np.ndarray
     rs_by: dict = field(default_factory=dict)   # momentum kind -> percentile matrix (rs = "6m")
+    above_50: np.ndarray | None = None          # bool: close > 50-day average
+    ext_200: np.ndarray | None = None           # close / 200-day average - 1 (NaN if unknown)
 
 
 def build_panel(frames: dict[str, pd.DataFrame], spy: pd.DataFrame, symbols: list[str]) -> Panel:
@@ -181,10 +209,13 @@ def build_panel(frames: dict[str, pd.DataFrame], spy: pd.DataFrame, symbols: lis
     rs_by = {kind: momentum_score(close_raw, kind).rank(axis=1, pct=True).to_numpy(float) for kind in MOMENTUM_KINDS}
     sma200 = close_raw.rolling(200, min_periods=200).mean()
     above = (close_raw > sma200)
+    above50 = close_raw > close_raw.rolling(50, min_periods=50).mean()
+    ext = close_raw / sma200 - 1
     spy_close = spy["close"]
     spy_above = (spy_close > spy_close.rolling(200, min_periods=200).mean()).to_numpy()
     return Panel(dates, symbols, matrix("open").to_numpy(float), matrix("low").to_numpy(float), close.to_numpy(float),
-                 rs_by["6m"], above.to_numpy(bool), close_raw.notna().to_numpy(), spy_above, rs_by)
+                 rs_by["6m"], above.to_numpy(bool), close_raw.notna().to_numpy(), spy_above, rs_by,
+                 above50.to_numpy(bool), ext.to_numpy(float))
 
 
 def simulate(panel: Panel, params: RotationParams, cost_bps: float, start: str | None = None,
@@ -229,7 +260,7 @@ def simulate(panel: Panel, params: RotationParams, cost_bps: float, start: str |
                 continue
             cash -= notional
             positions[j] = {"shares": notional / (price * (1 + c)), "fill": price, "entry_i": i,
-                            "stop": price * (1 - params.stop_pct) if params.stop_pct else None}
+                            "stop": price * (1 - params.stop_pct) if params.stop_pct else None, "max_ext": -np.inf}
         pending_buys = []
         # 2) standing protective stops during the day
         for j in [j for j, p in positions.items() if p["stop"] is not None]:
@@ -242,6 +273,11 @@ def simulate(panel: Panel, params: RotationParams, cost_bps: float, start: str |
         curve.append(equity)
         dates.append(panel.dates[i])
         exposure.append(value / equity if equity > 0 else 0.0)
+        if params.ma50_exit and panel.ext_200 is not None:
+            for j, p in positions.items():
+                e = panel.ext_200[i, j]
+                if panel.has_bar[i, j] and np.isfinite(e):
+                    p["max_ext"] = max(p["max_ext"], float(e))
         # 4) decide tomorrow's orders from today's close (monthly: only on
         # the first session of a month).
         if params.rebalance == "monthly" and not (i > 0 and panel.dates[i][:7] != panel.dates[i - 1][:7]):
@@ -252,8 +288,12 @@ def simulate(panel: Panel, params: RotationParams, cost_bps: float, start: str |
         relevant = set(np.flatnonzero((row_rs >= params.entry_rs) & panel.above_200[i]).tolist()) | set(positions)
         rs_today = {panel.symbols[j]: float(row_rs[j]) for j in relevant if np.isfinite(row_rs[j])}
         above_today = {panel.symbols[j]: bool(panel.above_200[i, j]) for j in relevant if panel.has_bar[i, j]}
+        above50_today = extended_today = None
+        if params.ma50_exit:
+            above50_today = {panel.symbols[j]: bool(panel.above_50[i, j]) for j in relevant if panel.has_bar[i, j]}
+            extended_today = {panel.symbols[j]: p["max_ext"] >= params.ma50_after_extension for j, p in positions.items()}
         sells, buys = decide([panel.symbols[j] for j in positions], rs_today, above_today,
-                             bool(panel.spy_above_200[i]), params, rng)
+                             bool(panel.spy_above_200[i]), params, rng, above50_today, extended_today)
         pending_sells.update({col[s]: reason for s, reason in sells})
         pending_buys = [col[s] for s in buys]
 

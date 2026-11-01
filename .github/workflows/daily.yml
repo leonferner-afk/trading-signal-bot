@@ -69,11 +69,17 @@ jobs:
           ROTATION_STOP_PCT: ${{ vars.ROTATION_STOP_PCT }}
           ROTATION_MOMENTUM: ${{ vars.ROTATION_MOMENTUM }}
           ROTATION_REBALANCE: ${{ vars.ROTATION_REBALANCE }}
-          BOT_SHARE_PCT: ${{ vars.BOT_SHARE_PCT }}
+          ROTATION_MA50_EXIT: ${{ vars.ROTATION_MA50_EXIT }}
+          ROTATION_MA50_AFTER_EXTENSION: ${{ vars.ROTATION_MA50_AFTER_EXTENSION }}
+          # The owner chose (2026-11-01): the bot manages 25 % of the portfolio,
+          # the other 75 % sits in an S&P 500 fund the bot never touches — no
+          # tested variant has beaten the index risk-adjusted.
+          BOT_SHARE_PCT: ${{ vars.BOT_SHARE_PCT || '25' }}
           ROCKETS_MODE: ${{ vars.ROCKETS_MODE }}
-          # The owner chose (2026-10-26) a 20 % high-risk lekpott that follows
-          # the unproven earnings-rocket rule with real money, pausing at -30 %.
-          ROCKET_POT_PCT: ${{ vars.ROCKET_POT_PCT || '20' }}
+          # Lekpott off (owner's choice 2026-11-01): earnings rockets are
+          # followed on paper only until they've proven something. Rockets
+          # bought while it was on still get their sell alerts.
+          ROCKET_POT_PCT: ${{ vars.ROCKET_POT_PCT || '0' }}
           ROCKET_POT_PAUSE_PCT: ${{ vars.ROCKET_POT_PAUSE_PCT || '30' }}
           FEE_BPS: ${{ vars.FEE_BPS }}
         run: python -m app.cli daily --report-dir "$REPORT_DIR"
@@ -88,10 +94,12 @@ jobs:
           DB_PATH: ${{ github.workspace }}/state/tradingbot.db
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           HYPOTHETICAL_BASE_SEK: ${{ vars.HYPOTHETICAL_BASE_SEK }}
-          # Restarted by the owner with a fresh 10 000 kr at the 2026-10-26 close
-          # (80 % rotation / 20 % lekpott); earlier results are not counted.
-          HYPOTHETICAL_SINCE: ${{ vars.HYPOTHETICAL_SINCE || '2026-10-26T20:00:00+00:00' }}
-          ROCKET_POT_PCT: ${{ vars.ROCKET_POT_PCT || '20' }}
+          # Restarted with a fresh 10 000 kr at the 2026-10-30 close for the new
+          # split (25 % rotation / 75 % S&P 500 fund, no lekpott); earlier
+          # results are not counted.
+          HYPOTHETICAL_SINCE: ${{ vars.HYPOTHETICAL_SINCE || '2026-10-30T20:00:00+00:00' }}
+          BOT_SHARE_PCT: ${{ vars.BOT_SHARE_PCT || '25' }}
+          ROCKET_POT_PCT: ${{ vars.ROCKET_POT_PCT || '0' }}
         run: >-
           python -m app.cli hypothetical --base-sek "${HYPOTHETICAL_BASE_SEK:-10000}" --since "$HYPOTHETICAL_SINCE"
           --out "$GITHUB_WORKSPACE/state/hypothetical.json"

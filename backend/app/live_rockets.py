@@ -332,6 +332,11 @@ def build_rocket_section(day: RocketDay | None, open_rockets: list[tuple], close
              else "## 🚀 Raketer — papperstrading (köp inte)"]
     if live:
         lines += pot_lines(pot, pot_sells)
+    else:
+        # Lekpott switched off with rockets still open: their sell alerts
+        # keep coming (the money may already be in them).
+        for record, reason, _ in pot_sells:
+            lines.append(f"- 🔴 **SÄLJ {record.symbol}** (tidigare lekpottsköp) vid öppning: aktien {reason}.")
     if day is not None:
         lines.append(f"Kontrollerade {day.checked} aktier: {day.candidates} steg ≥ {PAPER_PARAMS.min_reaction * 100:g}% på två dagar, "
                      f"{len(day.new)} efter en rapport som slog förväntningarna."

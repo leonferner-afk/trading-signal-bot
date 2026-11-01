@@ -28,6 +28,12 @@ positions already held are counted from their close at `since` (and FX at
 Lekpott (`pot_pct`): that share of the stake follows the bot's lekpott
 rockets instead of the rotation, one app.rockets.WEIGHT slot per rocket,
 same fixed-slot accounting.
+
+Index fund (`index_pct`): that share of the stake sits in an S&P 500 fund
+the bot never touches (BOT_SHARE_PCT's remainder), tracked as SPY from the
+start close to now in kronor (`index_sek_pct`). The same number gives the
+comparison "the whole stake in the index". The lekpott and rotation share
+the rest.
 """
 from __future__ import annotations
 
@@ -76,6 +82,8 @@ class HypotheticalResult:
     positions: list[PositionOutcome] = field(default_factory=list)
     fx_missing: int = 0
     pot_pct: float = 0.0
+    index_pct: float = 0.0
+    index_sek_pct: float | None = None    # SPY in kronor since the start; None = unknown
 
 
 def evaluate_position(record: SignalRecord, mark: dict | None, fx: pd.DataFrame, now: pd.Timestamp) -> PositionOutcome:
@@ -119,15 +127,18 @@ def hypothetical_value(records: list[SignalRecord], marks: dict[str, dict | None
                        base_sek: float = 10000.0, max_positions: int = 8,
                        now: pd.Timestamp | None = None, since: pd.Timestamp | None = None,
                        base_closes: dict[str, float] | None = None, pot_records: list[SignalRecord] = (),
-                       pot_marks: dict[int, dict | None] | None = None, pot_pct: float = 0.0) -> HypotheticalResult:
+                       pot_marks: dict[int, dict | None] | None = None, pot_pct: float = 0.0,
+                       index_pct: float = 0.0, index_sek_pct: float | None = None) -> HypotheticalResult:
     """`records`: every rotation SignalRecord ever created (open or
     closed) — a slot's par value is untouched until its own trade resolves,
     so replaying the whole history is equivalent to (and simpler than)
     tracking running slot state day by day. `marks` by symbol for open
-    rotation records, `pot_marks` by record id for open lekpott rockets."""
+    rotation records, `pot_marks` by record id for open lekpott rockets.
+    `pot_pct` is a share of the managed part (the stake minus `index_pct`)."""
     now = now or pd.Timestamp.now(tz="UTC")
-    slot = base_sek * (1 - pot_pct / 100) / max_positions
-    pot_slot = base_sek * pot_pct / 100 * POT_WEIGHT
+    managed = base_sek * (1 - index_pct / 100)
+    slot = managed * (1 - pot_pct / 100) / max_positions
+    pot_slot = managed * pot_pct / 100 * POT_WEIGHT
     positions = []
     for r in records:
         if since is not None and r.result != "OPEN" and r.closed_at is not None and to_utc(r.closed_at) <= since:
@@ -143,9 +154,15 @@ def hypothetical_value(records: list[SignalRecord], marks: dict[str, dict | None
     delta = sum((pot_slot if p.kind == "lekpott" else slot) * p.sek_return_pct / 100
                 for p in positions if p.sek_return_pct is not None)
     missing = sum(1 for p in positions if p.status != "pending" and p.sek_return_pct is None)
+    if index_pct:
+        if index_sek_pct is None:
+            missing += 1
+        else:
+            delta += base_sek * index_pct / 100 * index_sek_pct / 100
     total = base_sek + delta
     return HypotheticalResult(base_sek, max_positions, round(total, 2), round(delta, 2),
-                              round(delta / base_sek * 100, 2) if base_sek else 0.0, positions, missing, pot_pct)
+                              round(delta / base_sek * 100, 2) if base_sek else 0.0, positions, missing, pot_pct,
+                              index_pct, None if index_sek_pct is None else round(index_sek_pct, 3))
 
 
 def _fmt_kr(value: float) -> str:
@@ -169,12 +186,21 @@ def format_hypothetical_message(result: HypotheticalResult, since: str) -> str:
              f"({sign}{_fmt_kr(result.delta_sek)} kr, {sign}{result.delta_pct:.1f}%)"]
     rotation = [p for p in result.positions if p.kind == "rotation" and p.status in ("open", "closed")]
     pot = [p for p in result.positions if p.kind == "lekpott" and p.status in ("open", "closed")]
-    if result.pot_pct:
-        rot_sek = result.base_sek * (1 - result.pot_pct / 100)
+    index_sek = result.base_sek * result.index_pct / 100
+    if result.index_pct:
+        move = "kurs saknas" if result.index_sek_pct is None else f"{result.index_sek_pct:+.1f}%"
+        lines.append(f"S&P 500-fond {_fmt_kr(index_sek)} kr: {move}")
+    managed = result.base_sek - index_sek
+    if result.pot_pct or result.index_pct:
+        rot_sek = managed * (1 - result.pot_pct / 100)
         lines.append(f"Rotation {_fmt_kr(rot_sek)} kr: " + (_position_parts(rotation) or "inga innehav ännu"))
-        lines.append(f"Lekpott {_fmt_kr(result.base_sek - rot_sek)} kr: " + (_position_parts(pot) or "inga raketer ännu"))
+        if result.pot_pct:
+            lines.append(f"Lekpott {_fmt_kr(managed - rot_sek)} kr: " + (_position_parts(pot) or "inga raketer ännu"))
     elif rotation:
         lines.append(_position_parts(rotation))
+    if result.index_sek_pct is not None:
+        lines.append(f"Jämförelse: hela {_fmt_kr(result.base_sek)} kr i S&P 500 hade varit "
+                     f"{_fmt_kr(result.base_sek * (1 + result.index_sek_pct / 100))} kr.")
     pending = [p.symbol for p in result.positions if p.status == "pending"]
     if pending:
         lines.append(f"Väntar på första öppning: {', '.join(pending)}.")

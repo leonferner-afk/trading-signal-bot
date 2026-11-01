@@ -307,7 +307,9 @@ def _run_rocket_paper(client, spy, act: bool, evidence) -> tuple[object | None, 
     if not act or spy is None:
         return None, [], pot, []
     session_close = _drop_unclosed_bar(spy, 0)["close_time"].iloc[-1]
-    pot_sells = check_pot_sells(client, session_close) if pot.capital > 0 else []
+    # Checked even with the lekpott switched off: a rocket bought while it
+    # was on still needs its sell alert.
+    pot_sells = check_pot_sells(client, session_close)
     for record, reason, last_close in pot_sells:
         _deliver(format_pot_sell(record, reason, last_close))
     day = find_rockets(client, list(rocket_universe()), session_close)
@@ -318,6 +320,22 @@ def _run_rocket_paper(client, spy, act: bool, evidence) -> tuple[object | None, 
         _deliver(format_rocket_buy(r, ev))
     pot.open_count += sum(1 for r in day.new if r.get("pot_shares"))
     return day, [r["symbol"] for r in day.new], pot, pot_sells
+
+
+def _vs_index_lines(client, spy, params) -> list[str]:
+    """The rotation since its first trade vs SPY, per quarter (app.vs_index).
+    Informational: a failure here never stops the day's signals."""
+    from app.config import settings
+    from app.scanner.scanner import _drop_unclosed_bar
+    from app.vs_index import build_comparison, comparison_lines
+
+    try:
+        spy_closed = _drop_unclosed_bar(spy, 0) if spy is not None else None
+        comparison = build_comparison(journal.rotation_records(), client, spy_closed, params.max_positions)
+    except Exception:  # noqa: BLE001 - informational section only
+        logger.exception("vs-index comparison failed")
+        return ["", "## ⚖️ Mot index (SPY)", "Jämförelsen kunde inte räknas ut idag."]
+    return comparison_lines(comparison, settings.bot_share_pct)
 
 
 def _run_rotation(report_dir, today, client, universe, spy, session, new_session, stale, evidence, last_session=None) -> DailyOutcome:
@@ -336,6 +354,7 @@ def _run_rotation(report_dir, today, client, universe, spy, session, new_session
     day.closed = [e for e in day.closed if e.get("strategy") != journal.ROCKET_PAPER]
     report = build_rotation_report(today, session, new_session, params, day, open_positions,
                                    journal.performance_summary(), evidence, len(universe))
+    report += "\n" + "\n".join(_vs_index_lines(client, spy, params))
     if rockets_mode() == "paper":
         open_rockets = [(r, current_mark(client, r)) for r in open_all if r.strategy == journal.ROCKET_PAPER]
         report += "\n" + "\n".join(build_rocket_section(rocket_day, open_rockets, rocket_closed,

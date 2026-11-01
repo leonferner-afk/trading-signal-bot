@@ -74,6 +74,15 @@ på 10 års dagsdata med:
   - volatilitetsjusterad styrka gav +12,8 %/år, men föll till +9,7 % utan sin bästa aktie.
 
   Regeln behölls därför oförändrad.
+- **Snabbare sälj, förregistrerat 2026-11-01** (före första körningen, efter att de fem första live-affärerna
+  förlorade 14–29 % var i väntan på 200-dagarssäljet). Två varianter prövas mot samma krav som alla andra:
+  - sälj när aktien stänger under sitt 50-dagars snitt,
+  - samma sak, men bara efter att innehavet någon gång har stängt minst 30 % över sitt 200-dagars snitt.
+
+  I båda kräver köp också en stängning över 50-dagars snittet. Gränsen på 30 % bestämdes i förväg och justeras
+  inte i efterhand. Klarar en variant kraven kan den slås på med `ROTATION_MA50_EXIT=true` (och
+  `ROTATION_MA50_AFTER_EXTENSION=0.3`); annars förblir regeln oförändrad. Tidigare prövade fasta stopp på −20 %
+  blev sämre (+15,0 % mot +16,2 %/år).
 - **Den starka sista perioden** (+30,5 % mot +16,7 %) är för kort för att dra slutsatser av.
 
 Boten skriver detta i varje rapport och KÖP-meddelande. Kraven prövas om
@@ -91,9 +100,10 @@ delen av fördelen.
 - **🟢 KÖP NU — XYZ:** köp vid börsöppningen, ungefär det antal aktier meddelandet anger (1/8 av portföljvärdet du angett). Ingen stop-order ingår i de testade reglerna — säljet kommer som en SÄLJ NU-signal.
 - **🔴 SÄLJ NU — XYZ:** sälj vid börsöppningen.
 - **Dagsrapporten** (issue eller `reports/latest.md` på `bot-state`) visar innehav, resultat hittills och vilka aktier som står näst på tur.
+- **Mot index:** dagsrapporten avslutas med rotationens resultat sedan första affären bredvid SPY:s under exakt samma dagar, per kalenderkvartal, och vad din fördelning (botens andel + indexfond) gav. Det är måttstocken: bedöm boten över 1–2 år mot SPY, inte per dag eller vecka.
 - **Portföljstorlek och fördelning** sätts som repo-variabler (Settings → Secrets and variables → Actions → Variables):
   - `PORTFOLIO_SIZE_USD` är hela portföljen (standard 10 000).
-  - `BOT_SHARE_PCT` är den andel boten förvaltar (standard 100).
+  - `BOT_SHARE_PCT` är den andel boten förvaltar (25 i `daily.yml` sedan 2026-11-01, ägarens val).
 
   Resten är tänkt att ligga i en S&P 500-fond som boten aldrig rör, och varje köp blir 1/8 av botens del.
 
@@ -102,14 +112,15 @@ delen av fördelen.
 | Namn | Standard | Vad |
 |---|---|---|
 | `PORTFOLIO_SIZE_USD` (variabel) | 10000 | Hela portföljens värde i USD |
-| `BOT_SHARE_PCT` (variabel) | 100 | Andel av portföljen som boten förvaltar (resten: indexfond) |
-| `ROCKET_POT_PCT` (variabel) | 20 i `daily.yml` (0 i koden) | Lekpott: andel av portföljen som följer raketregeln med riktiga pengar. Tas från botens del. `0` = raketer bara på papper |
+| `BOT_SHARE_PCT` (variabel) | 25 i `daily.yml` (100 i koden) | Andel av portföljen som boten förvaltar (resten: indexfond) |
+| `ROCKET_POT_PCT` (variabel) | 0 | Lekpott: andel av portföljen som följer raketregeln med riktiga pengar. Tas från botens del. `0` = raketer bara på papper |
 | `ROCKET_POT_PAUSE_PCT` (variabel) | 30 | Nya lekpottsköp pausas när lekpotten har tappat så här mycket, tills pausen hävs medvetet |
 | `FEE_BPS` (variabel) | 15 | Courtage per affär i punkter; sätt 35 om du handlar från SEK-konto |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (secrets) | — | Notiser även i Telegram: skapa en bot via @BotFather, skriv till den, hämta chat-id via `https://api.telegram.org/bot<token>/getUpdates` |
 | `TWELVE_DATA_API_KEY` (secret) | — | Reservkälla för kursdata om Yahoo strular (gratis nyckel) |
 | `POLICY_MODE` | rotation | `swing` = de gamla stop/mål-signalerna (se nedan varför de inte är standard) |
 | `ROTATION_*` | se `app/policy.py` | Ändrar regeln — gör det bara om forskningen stöder den nya varianten |
+| `ROTATION_MA50_EXIT`, `ROTATION_MA50_AFTER_EXTENSION` | av, 0 | Den förregistrerade 50-dagarsvarianten (se Evidens). Slå på bara om den klarar kraven |
 
 ## Varför inte de gamla swing-signalerna?
 
@@ -152,11 +163,13 @@ förhandsbestämda krav, i jämförelse med **slumpvisa köp i samma aktier med 
 
 Ingen variant klarade alla krav.
 
-**Lekpott (på sedan 2026-10-26, ägarens val):** trots att regeln inte är bevisad följer 20 % av portföljen den
+**Lekpott (avstängd sedan 2026-11-01, ägarens val; var på 2026-10-26 – 2026-10-31):** raketerna följs nu bara på
+papper tills de har bevisat något. En raket som köptes medan lekpotten var på får fortfarande sin säljsignal.
+När lekpotten är på följer en andel av portföljen den
 strängaste raketvarianten med riktiga pengar. Boten skickar **"🚀 RAKET (lekpott, hög risk) — KÖP XYZ"** med antal
 aktier (10 % av lekpotten per raket, högst 10 samtidigt, högst 3 nya per dag, hela aktier) och
 **"🔴 SÄLJ NU (lekpott)"** dagen då aktien stänger 25 % under sin högsta stängning eller har hållits i 60
-handelsdagar. Rotationen förvaltar då de övriga 80 %. Om lekpotten tappar 30 % pausas nya lekpottsköp tills
+handelsdagar. Rotationen förvaltar då resten av botens andel. Om lekpotten tappar 30 % pausas nya lekpottsköp tills
 pausen hävs medvetet (`journal.set_rocket_pot_paused(None)`); öppna raketer säljs som vanligt. Raketer som inte får
 plats i lekpotten följs fortfarande på papper.
 

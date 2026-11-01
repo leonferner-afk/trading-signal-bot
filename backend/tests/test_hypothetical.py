@@ -134,3 +134,24 @@ def test_restart_with_lekpott_splits_the_stake_and_sizes_rockets_from_the_pot():
     msg = format_hypothetical_message(result, since="2026-10-26")
     assert "Hypotetiska 10 000 kr (sedan 2026-10-26): **10 050 kr**" in msg
     assert "Rotation 8 000 kr: inga innehav ännu" in msg and "Lekpott 2 000 kr: RKT +25.0%" in msg
+
+
+def test_index_share_tracks_spy_in_kronor_and_sizes_rotation_from_the_rest():
+    fx = _fx([("2026-09-25", 10.0), ("2026-09-29", 10.0)])
+    record = _record("AMD", "2026-09-26T20:00:00Z")
+    mark = {"fill_price": 100.0, "last_close": 120.0, "unrealized_pct": 20.0, "sessions_held": 2}
+    # 75 % in the index (+4 %), 25 % rotation in 8 slots: one slot of 312.5 kr at +20 %.
+    result = hypothetical_value([record], {"AMD": mark}, fx, base_sek=10000, max_positions=8, now=NOW,
+                                index_pct=75.0, index_sek_pct=4.0)
+    assert result.delta_sek == pytest.approx(7500 * 0.04 + 312.5 * 0.20)
+    message = format_hypothetical_message(result, "2026-09-26")
+    assert "S&P 500-fond 7 500 kr: +4.0%" in message
+    assert "Rotation 2 500 kr: AMD +20.0%" in message
+    assert "hela 10 000 kr i S&P 500 hade varit 10 400 kr" in message
+
+
+def test_unknown_index_move_is_excluded_not_guessed():
+    fx = _fx([("2026-09-25", 10.0)])
+    result = hypothetical_value([], {}, fx, base_sek=10000, index_pct=75.0, index_sek_pct=None, now=NOW)
+    assert result.total_sek == 10000 and result.fx_missing == 1
+    assert "kurs saknas" in format_hypothetical_message(result, "2026-09-26")

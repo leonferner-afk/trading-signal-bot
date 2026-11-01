@@ -185,6 +185,8 @@ def active_rotation_params() -> RotationParams:
         max_new_per_day=max_positions if rebalance == "monthly" else settings.max_new_buys_per_day,
         momentum=(os.getenv("ROTATION_MOMENTUM") or d.momentum).strip(),
         rebalance=rebalance,
+        ma50_exit=_env_bool("ROTATION_MA50_EXIT", d.ma50_exit),
+        ma50_after_extension=float(os.getenv("ROTATION_MA50_AFTER_EXTENSION") or d.ma50_after_extension),
     )
 
 

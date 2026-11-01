@@ -52,7 +52,7 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
     from app.db import init_db
     from app.hypothetical import FX_SYMBOL, format_hypothetical_message, hypothetical_value, to_utc
     from app.journal import repository as journal
-    from app.live_rotation import bot_capital, rocket_pot_capital
+    from app.live_rotation import _bot_share_pct, bot_capital, rocket_pot_capital
     from app.paper_trading.simulator import current_mark
     from app.policy import active_rotation_params
 
@@ -88,13 +88,28 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
             fx = client.get_klines(FX_SYMBOL, "1d", limit=400)
         except DataUnavailable:
             fx = None
+        try:
+            spy = client.get_klines("SPY", "1d", limit=400)
+        except DataUnavailable:
+            spy = None
+
+    # The index-fund part: SPY in kronor from the start close to the latest close.
+    start_ts = since_ts or to_utc((records or pot_records)[0].timestamp)
+    index_sek_pct = None
+    if spy is not None and not spy.empty and fx is not None:
+        from app.hypothetical import fx_rate_on
+
+        before = spy[spy["close_time"] <= start_ts]
+        fx0, fx1 = fx_rate_on(fx, start_ts), fx_rate_on(fx, spy["close_time"].iloc[-1])
+        if not before.empty and fx0 and fx1:
+            index_sek_pct = ((float(spy["close"].iloc[-1]) / float(before["close"].iloc[-1])) * (fx1 / fx0) - 1) * 100
 
     params = active_rotation_params()
     managed = bot_capital() + rocket_pot_capital()
     pot_pct = rocket_pot_capital() / managed * 100 if managed > 0 else 0.0
     result = hypothetical_value(records, marks, fx, base_sek=args.base_sek, max_positions=params.max_positions,
                                 since=since_ts, base_closes=base_closes, pot_records=pot_records, pot_marks=pot_marks,
-                                pot_pct=pot_pct)
+                                pot_pct=pot_pct, index_pct=100.0 - _bot_share_pct(), index_sek_pct=index_sek_pct)
     since = args.since[:10] if args.since else (records or pot_records)[0].timestamp[:10]
     message = format_hypothetical_message(result, since)
     print(message)
@@ -104,7 +119,7 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
         payload = {
             "base_sek": result.base_sek, "total_sek": result.total_sek, "delta_sek": result.delta_sek,
             "delta_pct": result.delta_pct, "since": since, "fx_missing": result.fx_missing, "message": message,
-            "pot_pct": round(pot_pct, 2),
+            "pot_pct": round(pot_pct, 2), "index_pct": result.index_pct, "index_sek_pct": result.index_sek_pct,
             "positions": [
                 {"symbol": p.symbol, "kind": p.kind, "status": p.status, "usd_return_pct": p.usd_return_pct,
                  "sek_return_pct": p.sek_return_pct}

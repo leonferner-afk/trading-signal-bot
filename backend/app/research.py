@@ -111,6 +111,13 @@ ROTATION_GRID = [
     # sit in two sectors today, which is exactly what a cap prevents).
     rot.RotationParams(max_positions=8, exit_rs=0.5, max_new_per_day=MAX_NEW_PER_DAY, max_per_sector=2),
     rot.RotationParams(max_positions=8, exit_rs=0.5, max_new_per_day=MAX_NEW_PER_DAY, max_per_sector=3),
+    # Faster-exit pair, pre-registered 2026-11-01 (before any run) after the
+    # live trades lost 14-29 % each waiting for the 200-day exit (INTC, NOW,
+    # HOOD, LRCX, ANET). Both also require a close above the 50-day average
+    # to buy. The +30 % extension threshold was fixed up front, not tuned.
+    rot.RotationParams(max_positions=8, exit_rs=0.5, max_new_per_day=MAX_NEW_PER_DAY, ma50_exit=True),
+    rot.RotationParams(max_positions=8, exit_rs=0.5, max_new_per_day=MAX_NEW_PER_DAY, ma50_exit=True,
+                       ma50_after_extension=0.3),
 ]
 ROTATION_RANDOM_RUNS = 20
 

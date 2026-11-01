@@ -162,3 +162,91 @@ def test_monthly_rebalance_only_decides_on_a_months_first_session():
     panel.dates = ["2026-09-28", "2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-05"]
     sim = _simulate_from_zero(panel, RotationParams(max_positions=1, rebalance="monthly", max_new_per_day=1), 0)
     assert sim["exposure"][:4].max() == 0 and sim["exposure"][4] > 0   # decided at 10-01's close, filled 10-02
+
+
+MA50 = RotationParams(max_positions=3, max_new_per_day=3, ma50_exit=True)
+MA50_EXT = RotationParams(max_positions=3, max_new_per_day=3, ma50_exit=True, ma50_after_extension=0.3)
+
+
+def test_ma50_exit_sells_below_the_50_day_and_never_on_missing_data():
+    rs = {"A": 0.9, "B": 0.9, "C": 0.9}
+    above = dict.fromkeys(rs, True)
+    sells, _ = decide(["A", "B", "C"], rs, above, True, MA50, above_50={"A": False, "B": True})
+    assert [s for s, _ in sells] == ["A"]               # C: 50-day unknown -> kept
+    assert "50-dagars" in sells[0][1]
+    # Off by default: the same inputs sell nothing.
+    assert decide(["A", "B", "C"], rs, above, True, P, above_50={"A": False})[0] == []
+
+
+def test_ma50_exit_after_extension_needs_the_holding_to_have_run_first():
+    rs = {"A": 0.9, "B": 0.9}
+    above = dict.fromkeys(rs, True)
+    below50 = {"A": False, "B": False}
+    sells, _ = decide(["A", "B"], rs, above, True, MA50_EXT, above_50=below50, extended={"A": True, "B": False})
+    assert [s for s, _ in sells] == ["A"] and "30% över" in sells[0][1]
+
+
+def test_ma50_exit_only_buys_above_the_50_day():
+    rs = {"X": 0.99, "Y": 0.95, "Z": 0.9}
+    above = dict.fromkeys(rs, True)
+    _, buys = decide([], rs, above, True, MA50, above_50={"X": False, "Y": True})
+    assert buys == ["Y"]                                 # X below its 50-day, Z unknown
+    assert decide([], rs, above, True, RotationParams(max_positions=3, max_new_per_day=3))[1] == ["X", "Y", "Z"]
+
+
+def test_ma50_variants_are_named_for_the_evidence_lookup():
+    assert MA50.name.endswith("sell below 50d")
+    assert MA50_EXT.name.endswith("sell below 50d after +30% over 200d")
+
+
+def test_simulation_ma50_exit_tracks_extension_since_the_fill():
+    # A bought at day 1's open; closes run to +40 % over the 200-day (ext 0.4)
+    # on day 2, then it closes below its 50-day on day 3 -> sold at day 4's open.
+    closes = {"A": [100, 100, 140, 120, 120, 120]}
+    rs = {"A": [0.9] * 6}
+    panel = _panel(closes, rs)
+    panel.above_50 = np.array([[True], [True], [True], [False], [False], [False]])
+    panel.ext_200 = np.array([[0.0], [0.0], [0.4], [0.2], [0.2], [0.2]])
+    params = RotationParams(max_positions=1, ma50_exit=True, ma50_after_extension=0.3)
+    sim = _simulate_from_zero(panel, params, 0)
+    assert len(sim["trades"]) == 1 and sim["trades"][0]["exit"] == "d004"
+    assert "50-dagars" in sim["trades"][0]["reason"]
+
+    # Never extended by 30 % -> the 50-day exit doesn't apply, the stock is held.
+    panel.ext_200 = np.full((6, 1), 0.2)
+    assert _simulate_from_zero(panel, params, 0)["trades"] == []
+
+
+def test_live_ma50_features_match_the_research_panel():
+    from app.live_rotation import market_features
+    from app.rotation import build_panel
+
+    n = 330
+    dates = pd.bdate_range("2024-01-01", periods=n)
+    close_time = (dates.tz_localize("America/New_York") + pd.Timedelta(hours=16)).tz_convert("UTC")
+    rng = np.random.default_rng(7)
+    frames, research = {}, {}
+    for k, s in enumerate(["SPY", "A", "B", "C"]):
+        c = 100 * np.exp(np.cumsum(rng.normal(0.001 * k, 0.02, n)))
+        frames[s] = pd.DataFrame({"open": c, "high": c, "low": c, "close": c, "volume": 1.0, "close_time": close_time})
+        research[s] = pd.DataFrame({"open": c, "low": c, "close": c}, index=dates.strftime("%Y-%m-%d"))
+
+    class Client:
+        def get_klines(self, symbol, interval, limit=500):
+            return frames[symbol].tail(limit)
+
+    symbols = ["A", "B", "C"]
+    panel = build_panel(research, research["SPY"], symbols)
+    decided = close_time[n - 40].isoformat()     # held since 40 sessions ago
+    f = market_features(Client(), symbols, frames["SPY"], "6m", {"B": decided})
+    assert f.above_50 == {s: bool(panel.above_50[-1, j]) for j, s in enumerate(panel.symbols)}
+    j = panel.symbols.index("B")
+    assert f.max_ext_200 == {"B": pytest.approx(float(np.nanmax(panel.ext_200[n - 39:, j])))}
+
+
+def test_policy_reads_the_ma50_variant_from_env(monkeypatch):
+    from app.policy import active_rotation_params
+
+    monkeypatch.setenv("ROTATION_MA50_EXIT", "true")
+    monkeypatch.setenv("ROTATION_MA50_AFTER_EXTENSION", "0.3")
+    assert active_rotation_params().name == "top8, in RS>=0.8, out RS<0.5, sell below 50d after +30% over 200d"

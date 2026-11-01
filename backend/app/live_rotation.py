@@ -41,19 +41,30 @@ class Features:
     ret_6m: dict[str, float]
     last_close: dict[str, float]
     skipped: dict[str, str] = field(default_factory=dict)
+    above_50: dict[str, bool] = field(default_factory=dict)
+    max_ext_200: dict[str, float] = field(default_factory=dict)   # holdings: highest close/200d - 1 since the fill
+
+
+def _sma(close: pd.Series, n: int) -> pd.Series:
+    return close.rolling(n, min_periods=n).mean()
 
 
 def _above_200(close: pd.Series) -> bool:
     return bool(len(close) >= 200 and close.iloc[-1] > close.iloc[-200:].mean())
 
 
-def market_features(client: StockClient, universe: list[str], spy: pd.DataFrame, momentum: str = "6m") -> Features:
+def market_features(client: StockClient, universe: list[str], spy: pd.DataFrame, momentum: str = "6m",
+                    held_since: dict[str, str] | None = None) -> Features:
     """Per-stock features for the latest session. `rs` is the percentile of
     `momentum_score(kind=momentum)` across the universe — the same function
-    the research panel ranks by. `ret_6m` is kept for display."""
+    the research panel ranks by. `ret_6m` is kept for display.
+    `held_since` (symbol -> buy-decision timestamp) adds, per holding, the
+    highest close/200-day-average since the fill (the research's max_ext;
+    limited to the ~200 sessions the 400-bar download can average over)."""
     spy = _drop_unclosed_bar(spy, 0)
     session_close = spy["close_time"].iloc[-1]
     ret_6m, score, above, last_close, skipped = {}, {}, {}, {}, {}
+    above_50, max_ext = {}, {}
     for symbol in universe:
         try:
             df = _drop_unclosed_bar(client.get_klines(symbol, "1d", limit=400), 0)
@@ -66,13 +77,22 @@ def market_features(client: StockClient, universe: list[str], spy: pd.DataFrame,
         close = df["close"].astype(float)
         last_close[symbol] = float(close.iloc[-1])
         above[symbol] = _above_200(close)
+        if len(close) >= 50:
+            above_50[symbol] = bool(close.iloc[-1] > close.iloc[-50:].mean())
+        if held_since and symbol in held_since:
+            since = pd.Timestamp(held_since[symbol])
+            since = since.tz_localize("UTC") if since.tzinfo is None else since
+            ext = (close / _sma(close, 200) - 1)[(df["close_time"] > since).to_numpy()]
+            if ext.notna().any():
+                max_ext[symbol] = float(ext.max())
         if len(close) > RS_LOOKBACK:
             ret_6m[symbol] = float(close.iloc[-1] / close.iloc[-1 - RS_LOOKBACK] - 1)
         value = momentum_score(close.reset_index(drop=True).to_frame(), momentum).iloc[-1, 0]
         if pd.notna(value) and np.isfinite(value):
             score[symbol] = float(value)
     rs = pd.Series(score, dtype=float).rank(pct=True).to_dict() if score else {}
-    return Features(session_close, _above_200(spy["close"].astype(float)), rs, above, ret_6m, last_close, skipped)
+    return Features(session_close, _above_200(spy["close"].astype(float)), rs, above, ret_6m, last_close, skipped,
+                    above_50, max_ext)
 
 
 def rotation_evidence(evidence: dict | None, params: RotationParams) -> dict | None:
@@ -206,14 +226,17 @@ def run_rotation_day(client: StockClient, universe: list[str], spy: pd.DataFrame
         return RotationDay([], [], closed, [], None)
 
     live = get_effective_settings()
-    features = market_features(client, universe, spy, params.momentum)
+    held_since = {r.symbol: r.timestamp for r in journal.get_open_signals() if r.strategy == journal.ROTATION}
+    features = market_features(client, universe, spy, params.momentum, held_since)
     if not is_rebalance_session(params, session, last_session):
         return RotationDay([], [], closed, [], features, note="Månadsvis ombalansering: nästa beslut fattas vid första "
                                                               "handelsdagen i nästa månad.")
     timestamp = features.session_close.isoformat()
     open_records = [r for r in journal.get_open_signals() if r.strategy == journal.ROTATION]
     holding = [r for r in open_records if r.exit_signal_at is None]
-    sells, buys = decide([r.symbol for r in holding], features.rs, features.above_200, features.spy_above_200, params)
+    extended = {s: v >= params.ma50_after_extension for s, v in features.max_ext_200.items()}
+    sells, buys = decide([r.symbol for r in holding], features.rs, features.above_200, features.spy_above_200, params,
+                         above_50=features.above_50, extended=extended)
 
     by_symbol = {r.symbol: r for r in holding}
     sell_rows = []
@@ -248,7 +271,8 @@ def run_rotation_day(client: StockClient, universe: list[str], spy: pd.DataFrame
 
     # The next strongest eligible names (for the report only).
     bought = {s for s, _ in buy_rows} | {r.symbol for r in holding}
-    ranked = sorted((s for s, v in features.rs.items() if v >= params.entry_rs and features.above_200.get(s) and s not in bought),
+    ranked = sorted((s for s, v in features.rs.items() if v >= params.entry_rs and features.above_200.get(s) and s not in bought
+                     and (not params.ma50_exit or features.above_50.get(s))),
                     key=lambda s: features.rs[s], reverse=True)
     return RotationDay(buy_rows, sell_rows, closed, ranked[:8], features, too_expensive)
 
