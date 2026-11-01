@@ -57,8 +57,11 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
     from app.policy import active_rotation_params
 
     init_db()
+    from app.rocket_portfolio import admitted
+
     records = journal.rotation_records()
     pot_records = journal.rocket_pot_records()
+    rocket_taken = admitted(journal.rocket_records())
     if not records and not pot_records:
         message = "Inga rotation-affärer i journalen ännu."
         print(message)
@@ -71,8 +74,11 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
                        and (r.result == "OPEN" or (r.closed_at is not None and to_utc(r.closed_at) > since_ts))]
     open_records = [r for r in records if r.result == "OPEN"]
     open_pot = [r for r in pot_records if r.result == "OPEN"]
+    open_rockets = [r for r in rocket_taken if r.result == "OPEN"]
     with StockClient() as client:
-        client.prefetch(sorted({r.symbol for r in open_records + open_pot + held_at_restart}) + [FX_SYMBOL], "1d", limit=400)
+        client.prefetch(sorted({r.symbol for r in open_records + open_pot + held_at_restart + open_rockets})
+                        + [FX_SYMBOL], "1d", limit=400)
+        rocket_marks = {r.id: current_mark(client, r) for r in open_rockets}
         marks = {r.symbol: current_mark(client, r) for r in open_records}
         pot_marks = {r.id: current_mark(client, r) for r in open_pot}
         base_closes = {}
@@ -112,6 +118,15 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
                                 pot_pct=pot_pct, index_pct=100.0 - _bot_share_pct(), index_sek_pct=index_sek_pct)
     since = args.since[:10] if args.since else (records or pot_records)[0].timestamp[:10]
     message = format_hypothetical_message(result, since)
+    rocket_sek = None
+    if rocket_taken:
+        from app.hypothetical import _fmt_kr, rocket_portfolio_sek
+
+        rocket_sek, rocket_missing = rocket_portfolio_sek(rocket_taken, rocket_marks, fx, args.base_sek)
+        message += (f"\n🚀 Raketportfölj (papper, på kul) sedan {rocket_taken[0].timestamp[:10]}: "
+                    f"{_fmt_kr(args.base_sek)} kr → **{_fmt_kr(rocket_sek)} kr** "
+                    f"({(rocket_sek / args.base_sek - 1) * 100:+.1f}%)"
+                    + (f" ({rocket_missing} utan valutakurs ännu)" if rocket_missing else ""))
     print(message)
     _append_step_summary(message)
 
@@ -119,6 +134,7 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
         payload = {
             "base_sek": result.base_sek, "total_sek": result.total_sek, "delta_sek": result.delta_sek,
             "delta_pct": result.delta_pct, "since": since, "fx_missing": result.fx_missing, "message": message,
+            "rocket_paper_sek": rocket_sek,
             "pot_pct": round(pot_pct, 2), "index_pct": result.index_pct, "index_sek_pct": result.index_sek_pct,
             "positions": [
                 {"symbol": p.symbol, "kind": p.kind, "status": p.status, "usd_return_pct": p.usd_return_pct,

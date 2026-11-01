@@ -359,6 +359,14 @@ def build_rocket_section(day: RocketDay | None, open_rockets: list[tuple], close
             else:
                 lines.append(f"| {record.symbol} | {kind} | {mark['fill_price']:g} | {mark['last_close']:g} | "
                              f"{mark['unrealized_pct']:+.1f}% | {mark['sessions_held']} |")
+    from app.rocket_portfolio import summary_line
+
+    records = journal.rocket_records()
+    marks = {r.id: m for r, m in open_rockets}
+    line = summary_line(records, marks, base=10000.0, currency="$")
+    if line:
+        lines += ["", line, "Samma storlek som i testet: 10 % per raket, högst 10 samtidigt, högst 3 nya per dag. "
+                  "Regeln är inte bevisad — det här är ett experiment, inga riktiga pengar."]
     if summary.get("n"):
         lines.append(f"\nPapper hittills: {summary['n']} avslutade, {summary['win_rate'] * 100:.0f}% vinnare, snitt "
                      f"{summary['avg_ret_pct']:+.1f}% per raket"

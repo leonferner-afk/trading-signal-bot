@@ -187,6 +187,11 @@ handelsdagar. Rotationen förvaltar då resten av botens andel. Om lekpotten tap
 pausen hävs medvetet (`journal.set_rocket_pot_paused(None)`); öppna raketer säljs som vanligt. Raketer som inte får
 plats i lekpotten följs fortfarande på papper.
 
+**Raketportfölj på papper (på kul, sedan 2026-11-01):** en virtuell portfölj på 10 000 följer *varje*
+raketsignal, storleksbestämd som i testet (10 % per raket, högst 10 samtidigt, högst 3 nya per dag, i den
+ordning boten skickade dem). Dagsrapporten visar den i dollar och den hypotetiska räknaren i kronor
+(valutakursen inräknad). Inga riktiga pengar, och regeln är inte bevisad.
+
 **Papperstrading (pågår):** den bästa rapportraketen följs live utan pengar. Varje ny börsdag letar boten efter
 aktier som stigit ≥ 10 % på två dagar efter en rapport som slog förväntningarna, och skickar då
 **"🚀 RAKET (papper — köp inte)"**. Positionen följs som om den köptes vid öppning, med samma släpande

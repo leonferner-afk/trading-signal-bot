@@ -207,3 +207,20 @@ def format_hypothetical_message(result: HypotheticalResult, since: str) -> str:
     if result.fx_missing:
         lines.append(f"({result.fx_missing} position(er) saknar kurs eller valutakurs och räknas inte med ännu.)")
     return "\n".join(lines)
+
+
+def rocket_portfolio_sek(taken: list[SignalRecord], marks: dict[int, dict | None], fx: pd.DataFrame,
+                         base_sek: float = 10000.0, now: pd.Timestamp | None = None) -> tuple[float, int]:
+    """app.rocket_portfolio in kronor: (value, positions without a rate yet).
+    `taken` = app.rocket_portfolio.admitted(...), `marks` by record id."""
+    now = now or pd.Timestamp.now(tz="UTC")
+    delta, missing = 0.0, 0
+    for r in taken:
+        p = evaluate_position(r, marks.get(r.id), fx, now)
+        if p.status == "pending":
+            continue
+        if p.sek_return_pct is None:
+            missing += 1
+            continue
+        delta += base_sek * POT_WEIGHT * p.sek_return_pct / 100
+    return round(base_sek + delta, 2), missing

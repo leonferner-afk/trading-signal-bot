@@ -352,6 +352,15 @@ def rocket_pot_records() -> list[SignalRecord]:
         return list(session.scalars(stmt))
 
 
+def rocket_records() -> list[SignalRecord]:
+    """Every earnings-rocket call (paper and lekpott, open or closed), in the
+    order they were made — what app.rocket_portfolio replays."""
+    with get_session() as session:
+        stmt = select(SignalRecord).where(SignalRecord.strategy == ROCKET_PAPER) \
+            .order_by(SignalRecord.timestamp, SignalRecord.id)
+        return list(session.scalars(stmt))
+
+
 def rocket_pot_paused_at() -> str | None:
     with get_session() as session:
         row = session.get(AppSettingsRow, 1)
