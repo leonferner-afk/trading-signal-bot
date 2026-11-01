@@ -111,6 +111,9 @@ delen av fördelen.
 
 ## Så använder du signalerna
 
+> **Just nu (sedan 2026-11-01, ägarens val): allt på papper.** Ägaren följer rotationen och raketerna utan att
+> lägga ordrar. Rapporterna, jämförelsen mot SPY och de hypotetiska kronorportföljerna visar hur det hade gått.
+
 - **🟢 KÖP NU — XYZ:** köp vid börsöppningen, ungefär det antal aktier meddelandet anger (1/8 av portföljvärdet du angett). Ingen stop-order ingår i de testade reglerna — säljet kommer som en SÄLJ NU-signal.
 - **🔴 SÄLJ NU — XYZ:** sälj vid börsöppningen.
 - **Dagsrapporten** (issue eller `reports/latest.md` på `bot-state`) visar innehav, resultat hittills och vilka aktier som står näst på tur.
