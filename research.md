@@ -1,6 +1,6 @@
 # Strategy research
 
-278 symbols with data (1 failed), 10 years of daily bars. Control group: 105 stocks that were already large caps in 2015. Primary cost 20 bps per side (USD account: courtage + slippage; 40 bps ≈ trading from a SEK account). Validation from 2023-02-25, out-of-sample (OOS) from 2024-12-27. Setups invalidated at the next open (skipped): 1305.
+278 symbols with data (1 failed), 10 years of daily bars. Control group: 105 stocks that were already large caps in 2015. Primary cost 20 bps per side (USD account: courtage + slippage; 40 bps ≈ trading from a SEK account). Validation from 2023-02-25, out-of-sample (OOS) from 2024-12-27. Setups invalidated at the next open (skipped): 1300.
 
 Portfolio: max 8 positions, max 3 new per day, 1% risk per trade, max 25% of equity per position, no leverage, marked to market daily. 'vs random' = share of 40 random-order portfolios from the same eligible trades that this ranking beat.
 
@@ -10,12 +10,12 @@ SPY buy-and-hold: +14.9%/yr, max DD -34%, Sharpe 0.84 · train+val Sharpe 0.83 �
 
 | rule set | trades/yr | exposure | win% | avgR | CAGR | max DD | Sharpe | train+val Sharpe | OOS CAGR | OOS Sharpe | vs random |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| random picks (reference) | 74.7 | 87% | 21 | +0.25 | +11.7% | -56% | 0.53 | 0.73 | -9.8% | -0.20 | — |
-| random picks, trend filter | 63.8 | 77% | 23 | +0.38 | +18.7% | -43% | 0.80 | 0.90 | +2.8% | 0.26 | — |
+| random picks (reference) | 79.7 | 86% | 21 | +0.22 | +6.6% | -61% | 0.36 | 0.58 | -14.3% | -0.33 | — |
+| random picks, trend filter | 63.1 | 78% | 22 | +0.35 | +13.8% | -40% | 0.64 | 0.64 | +12.4% | 0.56 | — |
 | RS leaders, trend filter | 73.1 | 66% | 23 | +0.40 | +21.5% | -42% | 0.75 | 0.94 | -4.8% | 0.07 | 97% |
 | RS leaders near 52w high | 65.4 | 76% | 25 | +0.62 | +32.6% | -34% | 1.06 | 1.19 | +24.4% | 0.75 | 100% |
-| signals score>=70, trend | 46.6 | 63% | 22 | +0.32 | +11.9% | -35% | 0.64 | 0.78 | +0.3% | 0.13 | 33% |
-| signals score>=70, trend, RS top 20% | 41.5 | 50% | 22 | +0.49 | +18.6% | -33% | 0.88 | 0.99 | +7.7% | 0.44 | 68% |
+| signals score>=70, trend | 46.7 | 63% | 22 | +0.32 | +11.7% | -35% | 0.63 | 0.77 | +0.3% | 0.13 | 30% |
+| signals score>=70, trend, RS top 20% | 41.5 | 50% | 22 | +0.49 | +18.6% | -33% | 0.88 | 0.99 | +7.7% | 0.44 | 72% |
 | signals, trend, RS top 20% | 77.1 | 78% | 22 | +0.70 | +38.9% | -48% | 1.12 | 1.31 | +18.6% | 0.63 | 100% |
 | signals, trend, RS top 20%, near 52w high | 75.0 | 79% | 22 | +0.53 | +29.1% | -32% | 1.00 | 1.18 | +20.4% | 0.70 | 100% |
 
@@ -25,7 +25,7 @@ Cost sensitivity (full-period CAGR / Sharpe):
 |---|---|---|---|
 | RS leaders, trend filter | +21.5% / 0.75 | +17.9% / 0.66 | +12.6% / 0.52 |
 | RS leaders near 52w high | +32.6% / 1.06 | +28.2% / 0.95 | +21.4% / 0.78 |
-| signals score>=70, trend | +11.9% / 0.64 | +8.9% / 0.51 | +5.0% / 0.34 |
+| signals score>=70, trend | +11.7% / 0.63 | +8.7% / 0.50 | +4.8% / 0.33 |
 | signals score>=70, trend, RS top 20% | +18.6% / 0.88 | +16.1% / 0.78 | +12.3% / 0.63 |
 | signals, trend, RS top 20% | +38.9% / 1.12 | +33.2% / 1.00 | +26.5% / 0.85 |
 | signals, trend, RS top 20%, near 52w high | +29.1% / 1.00 | +23.8% / 0.86 | +17.0% / 0.67 |
@@ -34,11 +34,11 @@ Exit variant (stop 2.5 x ATR instead of 1.5 x ATR / structural):
 
 | rule set | CAGR | max DD | Sharpe | OOS Sharpe |
 |---|---|---|---|---|
-| random picks (reference) | +11.5% | -42% | 0.62 | 0.49 |
-| random picks, trend filter | +18.0% | -28% | 0.97 | 0.31 |
+| random picks (reference) | +14.1% | -32% | 0.74 | -0.42 |
+| random picks, trend filter | +13.8% | -35% | 0.76 | 0.37 |
 | RS leaders, trend filter | +18.6% | -27% | 0.88 | 0.69 |
 | RS leaders near 52w high | +24.5% | -24% | 1.07 | 0.34 |
-| signals score>=70, trend | +12.0% | -29% | 0.75 | -0.09 |
+| signals score>=70, trend | +12.3% | -28% | 0.77 | -0.09 |
 | signals score>=70, trend, RS top 20% | +17.1% | -28% | 1.00 | 0.32 |
 | signals, trend, RS top 20% | +18.1% | -36% | 0.86 | 0.41 |
 | signals, trend, RS top 20%, near 52w high | +16.3% | -26% | 0.80 | 0.43 |
@@ -47,47 +47,47 @@ Exit variant (stop 2.5 x ATR instead of 1.5 x ATR / structural):
 
 | group | exit | policy | n | win% | avgR | medR | t | excess vs random (t) | ≥+50% | OOS n | OOS avgR |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| breakout | fixed | all | 6503 | 17 | +0.286 | -1.11 | 1.32 | -0.325 (-3.89) | 3.2% | 1449 | +0.002 |
-| breakout | fixed | SPY>200d & stock>200d | 5155 | 16 | +0.237 | -1.12 | 0.66 | -0.216 (-3.06) | 3.0% | 1167 | +0.009 |
-| breakout | fixed | SPY>200d & stock>200d & RS>=0.8 | 2132 | 18 | +0.427 | -1.08 | 1.69 | -0.174 (-1.63) | 5.4% | 503 | +0.467 |
-| breakout | fixed | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 1740 | 18 | +0.470 | -1.08 | 1.65 | -0.066 (-0.54) | 4.4% | 384 | +0.666 |
-| breakout | fixed | score>=70 & SPY>200d & stock>200d | 746 | 22 | +0.467 | -1.00 | 2.44 | +0.067 (0.45) | 5.9% | 139 | +0.312 |
+| breakout | fixed | all | 6504 | 17 | +0.283 | -1.11 | 1.29 | -0.327 (-3.88) | 3.2% | 1449 | +0.002 |
+| breakout | fixed | SPY>200d & stock>200d | 5157 | 16 | +0.228 | -1.12 | 0.58 | -0.224 (-3.19) | 3.0% | 1167 | +0.009 |
+| breakout | fixed | SPY>200d & stock>200d & RS>=0.8 | 2133 | 18 | +0.406 | -1.08 | 1.52 | -0.198 (-1.90) | 5.4% | 503 | +0.467 |
+| breakout | fixed | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 1741 | 18 | +0.445 | -1.08 | 1.48 | -0.093 (-0.78) | 4.4% | 384 | +0.666 |
+| breakout | fixed | score>=70 & SPY>200d & stock>200d | 747 | 22 | +0.465 | -1.00 | 2.43 | +0.065 (0.43) | 5.9% | 139 | +0.312 |
 | breakout | fixed | score>=70 & SPY>200d & stock>200d & RS>=0.8 | 454 | 23 | +0.567 | -0.98 | 2.56 | +0.072 (0.35) | 7.7% | 91 | +0.450 |
-| momentum | fixed | all | 5393 | 22 | +0.266 | -1.04 | 1.92 | -0.300 (-3.96) | 3.6% | 1204 | +0.054 |
-| momentum | fixed | SPY>200d & stock>200d | 4764 | 22 | +0.304 | -1.04 | 1.97 | -0.095 (-1.49) | 3.4% | 1090 | +0.086 |
-| momentum | fixed | SPY>200d & stock>200d & RS>=0.8 | 1939 | 22 | +0.375 | -1.02 | 2.14 | -0.132 (-1.61) | 6.2% | 453 | +0.238 |
-| momentum | fixed | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 1600 | 23 | +0.385 | -1.03 | 2.09 | -0.058 (-0.66) | 4.6% | 361 | +0.227 |
+| momentum | fixed | all | 5394 | 22 | +0.262 | -1.04 | 1.89 | -0.303 (-4.02) | 3.6% | 1204 | +0.054 |
+| momentum | fixed | SPY>200d & stock>200d | 4765 | 22 | +0.300 | -1.04 | 1.94 | -0.099 (-1.55) | 3.4% | 1090 | +0.085 |
+| momentum | fixed | SPY>200d & stock>200d & RS>=0.8 | 1938 | 22 | +0.372 | -1.02 | 2.12 | -0.134 (-1.64) | 6.2% | 453 | +0.238 |
+| momentum | fixed | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 1599 | 23 | +0.381 | -1.03 | 2.07 | -0.061 (-0.69) | 4.6% | 361 | +0.227 |
 | momentum | fixed | score>=70 & SPY>200d & stock>200d | 156 | 24 | +0.556 | -0.91 | 2.07 | +0.329 (1.19) | 12.8% | 37 | +0.993 |
 | momentum | fixed | score>=70 & SPY>200d & stock>200d & RS>=0.8 | 97 | 25 | +0.721 | -0.88 | 1.89 | +0.269 (0.71) | 15.5% | 26 | +1.018 |
-| combined | fixed | all | 8191 | 19 | +0.274 | -1.07 | 1.67 | -0.313 (-4.49) | 3.3% | 1813 | +0.112 |
-| combined | fixed | SPY>200d & stock>200d | 6751 | 19 | +0.242 | -1.08 | 1.01 | -0.180 (-3.03) | 3.1% | 1521 | +0.096 |
-| combined | fixed | SPY>200d & stock>200d & RS>=0.8 | 2817 | 20 | +0.408 | -1.04 | 2.03 | -0.149 (-1.85) | 5.5% | 663 | +0.490 |
-| combined | fixed | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 2319 | 21 | +0.420 | -1.05 | 2.01 | -0.055 (-0.64) | 4.3% | 511 | +0.593 |
-| combined | fixed | score>=70 & SPY>200d & stock>200d | 822 | 23 | +0.490 | -0.98 | 2.24 | +0.054 (0.40) | 6.6% | 161 | +0.363 |
+| combined | fixed | all | 8189 | 19 | +0.274 | -1.07 | 1.65 | -0.313 (-4.46) | 3.3% | 1813 | +0.112 |
+| combined | fixed | SPY>200d & stock>200d | 6750 | 19 | +0.237 | -1.08 | 0.96 | -0.185 (-3.11) | 3.1% | 1521 | +0.096 |
+| combined | fixed | SPY>200d & stock>200d & RS>=0.8 | 2818 | 20 | +0.396 | -1.04 | 1.93 | -0.162 (-2.05) | 5.5% | 663 | +0.490 |
+| combined | fixed | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 2320 | 21 | +0.405 | -1.05 | 1.91 | -0.070 (-0.84) | 4.3% | 511 | +0.593 |
+| combined | fixed | score>=70 & SPY>200d & stock>200d | 823 | 23 | +0.488 | -0.98 | 2.23 | +0.053 (0.39) | 6.6% | 161 | +0.363 |
 | combined | fixed | score>=70 & SPY>200d & stock>200d & RS>=0.8 | 500 | 23 | +0.578 | -0.96 | 2.26 | +0.021 (0.11) | 8.6% | 106 | +0.476 |
 | baseline_random | fixed | all | 17829 | 25 | +0.358 | -1.02 | 4.96 | — (—) | 5.0% | 4038 | +0.246 |
 | baseline_random | fixed | SPY>200d & stock>200d | 11269 | 23 | +0.335 | -1.04 | 3.09 | — (—) | 3.6% | 2563 | +0.171 |
 | baseline_random | fixed | SPY>200d & stock>200d & RS>=0.8 | 4592 | 23 | +0.381 | -1.03 | 3.48 | — (—) | 6.2% | 1114 | +0.242 |
 | baseline_random | fixed | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 3131 | 24 | +0.437 | -1.04 | 3.13 | — (—) | 4.0% | 684 | +0.326 |
-| breakout | wide | all | 5232 | 34 | +0.302 | -0.95 | 3.24 | -0.168 (-3.01) | 5.5% | 1155 | +0.265 |
-| breakout | wide | SPY>200d & stock>200d | 4205 | 33 | +0.313 | -0.96 | 2.33 | -0.070 (-1.42) | 5.0% | 937 | +0.286 |
-| breakout | wide | SPY>200d & stock>200d & RS>=0.8 | 1785 | 34 | +0.432 | -0.93 | 2.67 | -0.107 (-1.69) | 9.1% | 419 | +0.389 |
-| breakout | wide | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 1485 | 35 | +0.467 | -0.93 | 3.06 | -0.032 (-0.45) | 7.4% | 325 | +0.357 |
-| breakout | wide | score>=70 & SPY>200d & stock>200d | 719 | 33 | +0.388 | -0.91 | 2.76 | +0.020 (0.19) | 9.0% | 133 | +0.173 |
+| breakout | wide | all | 5229 | 34 | +0.302 | -0.95 | 3.23 | -0.169 (-3.01) | 5.5% | 1155 | +0.265 |
+| breakout | wide | SPY>200d & stock>200d | 4202 | 33 | +0.312 | -0.96 | 2.32 | -0.070 (-1.43) | 5.1% | 937 | +0.286 |
+| breakout | wide | SPY>200d & stock>200d & RS>=0.8 | 1786 | 34 | +0.428 | -0.93 | 2.63 | -0.112 (-1.77) | 9.1% | 419 | +0.389 |
+| breakout | wide | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 1486 | 35 | +0.463 | -0.93 | 3.02 | -0.037 (-0.54) | 7.4% | 325 | +0.357 |
+| breakout | wide | score>=70 & SPY>200d & stock>200d | 720 | 33 | +0.386 | -0.91 | 2.74 | +0.017 (0.15) | 9.0% | 133 | +0.173 |
 | breakout | wide | score>=70 & SPY>200d & stock>200d & RS>=0.8 | 432 | 33 | +0.468 | -0.90 | 2.76 | +0.016 (0.10) | 11.6% | 87 | +0.224 |
-| momentum | wide | all | 4489 | 32 | +0.268 | -0.98 | 2.80 | -0.190 (-3.24) | 4.8% | 978 | +0.155 |
-| momentum | wide | SPY>200d & stock>200d | 3982 | 33 | +0.311 | -0.98 | 2.92 | -0.028 (-0.53) | 4.6% | 890 | +0.187 |
-| momentum | wide | SPY>200d & stock>200d & RS>=0.8 | 1638 | 33 | +0.355 | -0.96 | 2.44 | -0.124 (-2.05) | 7.9% | 383 | +0.251 |
-| momentum | wide | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 1380 | 33 | +0.337 | -0.97 | 2.19 | -0.117 (-1.83) | 5.7% | 304 | +0.267 |
+| momentum | wide | all | 4488 | 32 | +0.267 | -0.98 | 2.79 | -0.190 (-3.25) | 4.8% | 978 | +0.154 |
+| momentum | wide | SPY>200d & stock>200d | 3981 | 33 | +0.310 | -0.98 | 2.92 | -0.029 (-0.54) | 4.6% | 890 | +0.186 |
+| momentum | wide | SPY>200d & stock>200d & RS>=0.8 | 1637 | 33 | +0.352 | -0.96 | 2.44 | -0.125 (-2.07) | 7.9% | 383 | +0.251 |
+| momentum | wide | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 1379 | 33 | +0.334 | -0.97 | 2.18 | -0.118 (-1.85) | 5.7% | 304 | +0.267 |
 | momentum | wide | score>=70 & SPY>200d & stock>200d | 140 | 31 | +0.321 | -0.88 | 1.44 | +0.028 (0.15) | 15.0% | 34 | +0.722 |
 | momentum | wide | score>=70 & SPY>200d & stock>200d & RS>=0.8 | 83 | 33 | +0.458 | -0.81 | 1.52 | -0.002 (-0.01) | 19.3% | 24 | +0.839 |
-| combined | wide | all | 6242 | 33 | +0.284 | -0.97 | 3.16 | -0.183 (-3.55) | 5.1% | 1370 | +0.227 |
-| combined | wide | SPY>200d & stock>200d | 5213 | 33 | +0.306 | -0.98 | 2.47 | -0.069 (-1.58) | 4.8% | 1170 | +0.236 |
-| combined | wide | SPY>200d & stock>200d & RS>=0.8 | 2262 | 33 | +0.377 | -0.95 | 2.55 | -0.115 (-2.05) | 8.2% | 535 | +0.345 |
-| combined | wide | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 1893 | 34 | +0.390 | -0.95 | 2.73 | -0.065 (-1.09) | 6.6% | 415 | +0.334 |
-| combined | wide | score>=70 & SPY>200d & stock>200d | 779 | 33 | +0.381 | -0.91 | 2.37 | -0.009 (-0.09) | 9.1% | 151 | +0.258 |
+| combined | wide | all | 6240 | 33 | +0.285 | -0.97 | 3.17 | -0.182 (-3.53) | 5.1% | 1370 | +0.227 |
+| combined | wide | SPY>200d & stock>200d | 5211 | 33 | +0.307 | -0.98 | 2.48 | -0.068 (-1.55) | 4.8% | 1170 | +0.236 |
+| combined | wide | SPY>200d & stock>200d & RS>=0.8 | 2262 | 33 | +0.377 | -0.95 | 2.55 | -0.117 (-2.08) | 8.2% | 535 | +0.345 |
+| combined | wide | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 1893 | 34 | +0.390 | -0.95 | 2.72 | -0.067 (-1.13) | 6.6% | 415 | +0.334 |
+| combined | wide | score>=70 & SPY>200d & stock>200d | 780 | 33 | +0.379 | -0.91 | 2.35 | -0.013 (-0.13) | 9.1% | 151 | +0.258 |
 | combined | wide | score>=70 & SPY>200d & stock>200d & RS>=0.8 | 464 | 33 | +0.454 | -0.89 | 2.35 | -0.047 (-0.34) | 12.1% | 99 | +0.326 |
-| baseline_random | wide | all | 12436 | 36 | +0.326 | -0.94 | 5.40 | — (—) | 6.3% | 2696 | +0.292 |
+| baseline_random | wide | all | 12435 | 36 | +0.326 | -0.94 | 5.40 | — (—) | 6.3% | 2696 | +0.292 |
 | baseline_random | wide | SPY>200d & stock>200d | 8119 | 34 | +0.324 | -0.97 | 3.54 | — (—) | 4.7% | 1836 | +0.200 |
 | baseline_random | wide | SPY>200d & stock>200d & RS>=0.8 | 3413 | 34 | +0.362 | -0.96 | 3.98 | — (—) | 8.3% | 808 | +0.280 |
 | baseline_random | wide | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 2492 | 35 | +0.425 | -0.97 | 4.00 | — (—) | 5.8% | 528 | +0.406 |
@@ -98,13 +98,13 @@ SPY buy-and-hold: +14.9%/yr, max DD -34%, Sharpe 0.84 · train+val Sharpe 0.83 �
 
 | rule set | trades/yr | exposure | win% | avgR | CAGR | max DD | Sharpe | train+val Sharpe | OOS CAGR | OOS Sharpe | vs random |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| random picks (reference) | 44.1 | 88% | 28 | +0.34 | +11.2% | -36% | 0.73 | 0.59 | +20.9% | 1.23 | — |
-| random picks, trend filter | 33.1 | 77% | 28 | +0.47 | +8.4% | -22% | 0.67 | 0.75 | +2.4% | 0.24 | — |
+| random picks (reference) | 41.4 | 88% | 25 | +0.24 | +4.2% | -35% | 0.34 | 0.28 | +10.1% | 0.66 | — |
+| random picks, trend filter | 35.0 | 76% | 25 | +0.27 | +5.3% | -26% | 0.45 | 0.46 | +3.3% | 0.29 | — |
 | RS leaders, trend filter | 42.2 | 76% | 23 | +0.24 | +7.0% | -36% | 0.45 | 0.56 | -0.1% | 0.10 | 60% |
 | RS leaders near 52w high | 40.8 | 76% | 22 | +0.21 | +3.6% | -29% | 0.29 | 0.33 | +1.7% | 0.18 | 30% |
-| signals score>=70, trend | 14.8 | 36% | 24 | +0.29 | +3.0% | -16% | 0.37 | 0.31 | +5.8% | 0.63 | 28% |
+| signals score>=70, trend | 15.0 | 36% | 23 | +0.28 | +3.0% | -16% | 0.36 | 0.30 | +5.8% | 0.63 | 42% |
 | signals score>=70, trend, RS top 20% | 10.8 | 25% | 22 | +0.34 | +2.4% | -19% | 0.33 | 0.37 | +2.5% | 0.37 | 10% |
-| signals, trend, RS top 20% | 41.8 | 78% | 21 | +0.33 | +6.3% | -30% | 0.46 | 0.53 | +4.3% | 0.34 | 57% |
+| signals, trend, RS top 20% | 41.8 | 78% | 21 | +0.33 | +6.3% | -30% | 0.46 | 0.53 | +4.3% | 0.34 | 62% |
 | signals, trend, RS top 20%, near 52w high | 43.0 | 78% | 21 | +0.32 | +7.1% | -33% | 0.52 | 0.61 | +4.2% | 0.33 | 75% |
 
 Cost sensitivity (full-period CAGR / Sharpe):
@@ -113,7 +113,7 @@ Cost sensitivity (full-period CAGR / Sharpe):
 |---|---|---|---|
 | RS leaders, trend filter | +7.0% / 0.45 | +4.0% / 0.30 | -0.3% / 0.08 |
 | RS leaders near 52w high | +3.6% / 0.29 | +0.6% / 0.12 | -4.1% / -0.14 |
-| signals score>=70, trend | +3.0% / 0.37 | +1.7% / 0.23 | -0.3% / 0.02 |
+| signals score>=70, trend | +3.0% / 0.36 | +1.6% / 0.22 | -0.4% / 0.00 |
 | signals score>=70, trend, RS top 20% | +2.4% / 0.33 | +1.4% / 0.21 | -0.1% / 0.02 |
 | signals, trend, RS top 20% | +6.3% / 0.46 | +3.0% / 0.26 | -1.9% / -0.04 |
 | signals, trend, RS top 20%, near 52w high | +7.1% / 0.52 | +3.7% / 0.31 | -1.2% / 0.00 |
@@ -122,8 +122,8 @@ Exit variant (stop 2.5 x ATR instead of 1.5 x ATR / structural):
 
 | rule set | CAGR | max DD | Sharpe | OOS Sharpe |
 |---|---|---|---|---|
-| random picks (reference) | +9.2% | -20% | 0.70 | 1.20 |
-| random picks, trend filter | +10.1% | -17% | 0.84 | 0.46 |
+| random picks (reference) | +11.7% | -16% | 0.85 | 0.35 |
+| random picks, trend filter | +10.5% | -17% | 0.87 | 0.60 |
 | RS leaders, trend filter | +10.5% | -25% | 0.66 | 0.41 |
 | RS leaders near 52w high | +12.1% | -22% | 0.76 | 0.35 |
 | signals score>=70, trend | +1.8% | -16% | 0.25 | 0.64 |
@@ -135,45 +135,45 @@ Exit variant (stop 2.5 x ATR instead of 1.5 x ATR / structural):
 
 | group | exit | policy | n | win% | avgR | medR | t | excess vs random (t) | ≥+50% | OOS n | OOS avgR |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| breakout | fixed | all | 2274 | 17 | +0.090 | -1.16 | -0.40 | -0.444 (-3.69) | 0.2% | 452 | -0.172 |
-| breakout | fixed | SPY>200d & stock>200d | 1864 | 16 | +0.019 | -1.17 | -0.48 | -0.266 (-2.58) | 0.1% | 376 | -0.151 |
+| breakout | fixed | all | 2274 | 17 | +0.090 | -1.16 | -0.39 | -0.443 (-3.68) | 0.2% | 452 | -0.172 |
+| breakout | fixed | SPY>200d & stock>200d | 1865 | 16 | +0.018 | -1.17 | -0.48 | -0.266 (-2.58) | 0.1% | 376 | -0.151 |
 | breakout | fixed | SPY>200d & stock>200d & RS>=0.8 | 760 | 19 | +0.292 | -1.12 | 1.27 | +0.029 (0.13) | 0.1% | 158 | +0.076 |
 | breakout | fixed | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 712 | 18 | +0.320 | -1.12 | 1.36 | +0.074 (0.34) | 0.1% | 153 | +0.200 |
-| breakout | fixed | score>=70 & SPY>200d & stock>200d | 158 | 22 | +0.209 | -1.02 | 1.04 | -0.065 (-0.23) | 0.0% | 26 | +0.589 |
+| breakout | fixed | score>=70 & SPY>200d & stock>200d | 159 | 22 | +0.201 | -1.02 | 1.04 | -0.065 (-0.23) | 0.0% | 26 | +0.589 |
 | breakout | fixed | score>=70 & SPY>200d & stock>200d & RS>=0.8 | 104 | 21 | +0.218 | -1.01 | 1.07 | -0.059 (-0.17) | 0.0% | 14 | +0.550 |
-| momentum | fixed | all | 2183 | 22 | +0.190 | -1.09 | 1.28 | -0.266 (-2.80) | 0.1% | 448 | +0.047 |
-| momentum | fixed | SPY>200d & stock>200d | 1949 | 23 | +0.229 | -1.10 | 1.10 | -0.086 (-0.96) | 0.1% | 413 | +0.113 |
-| momentum | fixed | SPY>200d & stock>200d & RS>=0.8 | 838 | 23 | +0.243 | -1.07 | 0.34 | -0.235 (-2.18) | 0.0% | 177 | +0.163 |
-| momentum | fixed | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 796 | 23 | +0.229 | -1.08 | 0.17 | -0.228 (-2.07) | 0.0% | 172 | +0.199 |
+| momentum | fixed | all | 2184 | 22 | +0.182 | -1.09 | 1.19 | -0.275 (-2.90) | 0.1% | 448 | +0.046 |
+| momentum | fixed | SPY>200d & stock>200d | 1950 | 23 | +0.220 | -1.10 | 1.01 | -0.095 (-1.07) | 0.1% | 413 | +0.112 |
+| momentum | fixed | SPY>200d & stock>200d & RS>=0.8 | 837 | 23 | +0.235 | -1.07 | 0.26 | -0.245 (-2.25) | 0.0% | 177 | +0.163 |
+| momentum | fixed | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 795 | 23 | +0.221 | -1.08 | 0.09 | -0.238 (-2.15) | 0.0% | 172 | +0.199 |
 | momentum | fixed | score>=70 & SPY>200d & stock>200d | 16 | 19 | +0.084 | -0.97 | 0.37 | -0.013 (-0.02) | 0.0% | 4 | -0.923 |
 | momentum | fixed | score>=70 & SPY>200d & stock>200d & RS>=0.8 | 9 | 22 | +0.781 | -0.89 | 0.72 | -0.171 (-0.16) | 0.0% | 3 | -0.808 |
-| combined | fixed | all | 3090 | 20 | +0.133 | -1.12 | 0.29 | -0.358 (-3.75) | 0.2% | 613 | -0.059 |
-| combined | fixed | SPY>200d & stock>200d | 2640 | 20 | +0.104 | -1.12 | -0.00 | -0.192 (-2.36) | 0.1% | 529 | -0.013 |
+| combined | fixed | all | 3091 | 20 | +0.131 | -1.12 | 0.28 | -0.359 (-3.76) | 0.2% | 613 | -0.059 |
+| combined | fixed | SPY>200d & stock>200d | 2641 | 20 | +0.102 | -1.12 | -0.01 | -0.193 (-2.35) | 0.1% | 529 | -0.013 |
 | combined | fixed | SPY>200d & stock>200d & RS>=0.8 | 1133 | 21 | +0.223 | -1.08 | 0.27 | -0.202 (-1.86) | 0.0% | 229 | +0.027 |
 | combined | fixed | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 1074 | 20 | +0.216 | -1.09 | 0.33 | -0.167 (-1.58) | 0.0% | 223 | +0.117 |
-| combined | fixed | score>=70 & SPY>200d & stock>200d | 170 | 22 | +0.238 | -1.02 | 1.15 | -0.064 (-0.24) | 0.0% | 30 | +0.387 |
+| combined | fixed | score>=70 & SPY>200d & stock>200d | 171 | 22 | +0.231 | -1.02 | 1.15 | -0.064 (-0.24) | 0.0% | 30 | +0.387 |
 | combined | fixed | score>=70 & SPY>200d & stock>200d & RS>=0.8 | 111 | 22 | +0.303 | -0.98 | 1.32 | -0.024 (-0.07) | 0.0% | 17 | +0.310 |
 | baseline_random | fixed | all | 7326 | 26 | +0.325 | -1.05 | 4.42 | — (—) | 0.7% | 1450 | +0.316 |
 | baseline_random | fixed | SPY>200d & stock>200d | 4793 | 23 | +0.270 | -1.08 | 2.56 | — (—) | 0.3% | 966 | +0.210 |
 | baseline_random | fixed | SPY>200d & stock>200d & RS>=0.8 | 1925 | 24 | +0.319 | -1.06 | 2.45 | — (—) | 0.4% | 421 | +0.194 |
 | baseline_random | fixed | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 1710 | 24 | +0.311 | -1.07 | 2.21 | — (—) | 0.2% | 362 | +0.237 |
-| breakout | wide | all | 1939 | 34 | +0.192 | -1.00 | 1.59 | -0.245 (-3.28) | 0.3% | 376 | +0.177 |
-| breakout | wide | SPY>200d & stock>200d | 1591 | 34 | +0.212 | -1.00 | 1.65 | -0.049 (-0.70) | 0.2% | 314 | +0.242 |
-| breakout | wide | SPY>200d & stock>200d & RS>=0.8 | 673 | 33 | +0.269 | -0.97 | 1.30 | -0.143 (-1.68) | 0.0% | 136 | +0.138 |
-| breakout | wide | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 635 | 34 | +0.274 | -0.97 | 1.42 | -0.093 (-1.09) | 0.0% | 131 | +0.184 |
-| breakout | wide | score>=70 & SPY>200d & stock>200d | 158 | 32 | +0.188 | -0.93 | 0.83 | -0.094 (-0.48) | 0.0% | 26 | +0.504 |
+| breakout | wide | all | 1939 | 34 | +0.191 | -0.99 | 1.59 | -0.244 (-3.28) | 0.3% | 376 | +0.177 |
+| breakout | wide | SPY>200d & stock>200d | 1591 | 34 | +0.212 | -1.00 | 1.65 | -0.050 (-0.71) | 0.2% | 314 | +0.242 |
+| breakout | wide | SPY>200d & stock>200d & RS>=0.8 | 674 | 33 | +0.268 | -0.97 | 1.28 | -0.146 (-1.72) | 0.0% | 136 | +0.138 |
+| breakout | wide | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 636 | 33 | +0.272 | -0.97 | 1.40 | -0.096 (-1.13) | 0.0% | 131 | +0.184 |
+| breakout | wide | score>=70 & SPY>200d & stock>200d | 159 | 32 | +0.180 | -0.93 | 0.71 | -0.117 (-0.61) | 0.0% | 26 | +0.504 |
 | breakout | wide | score>=70 & SPY>200d & stock>200d & RS>=0.8 | 104 | 32 | +0.306 | -0.93 | 1.20 | -0.127 (-0.53) | 0.0% | 14 | +0.616 |
-| momentum | wide | all | 1858 | 33 | +0.199 | -1.02 | 1.99 | -0.205 (-2.77) | 0.1% | 373 | +0.138 |
-| momentum | wide | SPY>200d & stock>200d | 1658 | 33 | +0.246 | -1.02 | 2.16 | +0.004 (0.06) | 0.1% | 346 | +0.183 |
-| momentum | wide | SPY>200d & stock>200d & RS>=0.8 | 724 | 34 | +0.270 | -0.99 | 1.40 | -0.137 (-1.81) | 0.0% | 155 | +0.059 |
-| momentum | wide | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 688 | 34 | +0.277 | -0.99 | 1.60 | -0.080 (-1.02) | 0.0% | 152 | +0.089 |
+| momentum | wide | all | 1857 | 33 | +0.195 | -1.02 | 1.97 | -0.207 (-2.80) | 0.1% | 373 | +0.137 |
+| momentum | wide | SPY>200d & stock>200d | 1657 | 33 | +0.242 | -1.02 | 2.14 | +0.002 (0.04) | 0.1% | 346 | +0.183 |
+| momentum | wide | SPY>200d & stock>200d & RS>=0.8 | 723 | 34 | +0.265 | -0.99 | 1.36 | -0.141 (-1.87) | 0.0% | 155 | +0.059 |
+| momentum | wide | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 687 | 34 | +0.272 | -0.99 | 1.57 | -0.084 (-1.07) | 0.0% | 152 | +0.089 |
 | momentum | wide | score>=70 & SPY>200d & stock>200d | 15 | 27 | -0.005 | -0.94 | 0.31 | +0.004 (0.01) | 0.0% | 4 | -0.850 |
 | momentum | wide | score>=70 & SPY>200d & stock>200d & RS>=0.8 | 8 | 38 | +0.697 | -0.53 | 0.89 | -0.131 (-0.21) | 0.0% | 3 | -0.751 |
-| combined | wide | all | 2450 | 33 | +0.189 | -1.01 | 1.81 | -0.231 (-3.37) | 0.3% | 478 | +0.171 |
-| combined | wide | SPY>200d & stock>200d | 2105 | 33 | +0.208 | -1.02 | 1.86 | -0.037 (-0.64) | 0.1% | 422 | +0.218 |
-| combined | wide | SPY>200d & stock>200d & RS>=0.8 | 925 | 34 | +0.279 | -0.98 | 1.58 | -0.113 (-1.74) | 0.0% | 189 | +0.073 |
-| combined | wide | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 879 | 34 | +0.282 | -0.99 | 1.65 | -0.062 (-1.01) | 0.0% | 185 | +0.107 |
-| combined | wide | score>=70 & SPY>200d & stock>200d | 169 | 32 | +0.192 | -0.92 | 0.99 | -0.081 (-0.43) | 0.0% | 30 | +0.324 |
+| combined | wide | all | 2451 | 33 | +0.189 | -1.01 | 1.82 | -0.230 (-3.36) | 0.3% | 478 | +0.171 |
+| combined | wide | SPY>200d & stock>200d | 2106 | 33 | +0.209 | -1.02 | 1.88 | -0.035 (-0.61) | 0.1% | 422 | +0.218 |
+| combined | wide | SPY>200d & stock>200d & RS>=0.8 | 926 | 34 | +0.278 | -0.98 | 1.56 | -0.115 (-1.77) | 0.0% | 189 | +0.073 |
+| combined | wide | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | 880 | 34 | +0.281 | -0.99 | 1.63 | -0.065 (-1.06) | 0.0% | 185 | +0.107 |
+| combined | wide | score>=70 & SPY>200d & stock>200d | 170 | 32 | +0.185 | -0.93 | 0.87 | -0.105 (-0.57) | 0.0% | 30 | +0.324 |
 | combined | wide | score>=70 & SPY>200d & stock>200d & RS>=0.8 | 110 | 32 | +0.343 | -0.92 | 1.36 | -0.116 (-0.51) | 0.0% | 17 | +0.375 |
 | baseline_random | wide | all | 5198 | 37 | +0.320 | -0.94 | 5.26 | — (—) | 0.8% | 972 | +0.368 |
 | baseline_random | wide | SPY>200d & stock>200d | 3503 | 35 | +0.273 | -0.99 | 3.07 | — (—) | 0.2% | 712 | +0.268 |
@@ -210,8 +210,6 @@ Exit variant (stop 2.5 x ATR instead of 1.5 x ATR / structural):
 | top8, in RS>=0.8, out RS<0.5, volatility-adjusted | 14 | 93% | 46 | +25.5% | 125 | +33.4% | -45% | 0.90 | 0.97 | +40.1% | 0.87 | 100% | +32.5% / +31.2% | RKLB: +27.3%, Sharpe 0.79 |
 | top8, in RS>=0.8, out RS<0.5, max 2/sector | 17 | 91% | 41 | +30.7% | 109 | +39.5% | -66% | 0.85 | 0.88 | +33.5% | 0.77 | 90% | +38.4% / +37.0% | GME: +36.5%, Sharpe 0.87 |
 | top8, in RS>=0.8, out RS<0.5, max 3/sector | 16 | 94% | 43 | +26.8% | 110 | +35.6% | -58% | 0.84 | 0.91 | +30.6% | 0.73 | 80% | +34.7% / +33.4% | SE: +31.1%, Sharpe 0.77 |
-| top8, in RS>=0.8, out RS<0.5, sell below 50d | 61 | 87% | 36 | +10.2% | 28 | +46.3% | -60% | 0.97 | 1.25 | -12.1% | 0.10 | 100% | +42.4% / +36.7% | MARA: +35.5%, Sharpe 0.85 |
-| top8, in RS>=0.8, out RS<0.5, sell below 50d after +30% over 200d | 58 | 88% | 38 | +10.7% | 30 | +31.9% | -59% | 0.81 | 1.05 | -8.9% | 0.14 | 95% | +28.4% / +23.2% | MARA: +33.3%, Sharpe 0.83 |
 
 ## Momentum rotation — universe: largecap_2015 (from 2018-02-08, 20 bps per side)
 
@@ -243,8 +241,6 @@ Exit variant (stop 2.5 x ATR instead of 1.5 x ATR / structural):
 | top8, in RS>=0.8, out RS<0.5, volatility-adjusted | 16 | 93% | 58 | +7.5% | 116 | +13.9% | -23% | 0.80 | 0.77 | +14.8% | 0.94 | 100% | +13.1% / +11.9% | GE: +11.0%, Sharpe 0.66 |
 | top8, in RS>=0.8, out RS<0.5, max 2/sector | 18 | 93% | 44 | +6.7% | 106 | +12.1% | -30% | 0.62 | 0.57 | +19.0% | 0.82 | 85% | +11.1% / +9.8% | DVN: +10.7%, Sharpe 0.58 |
 | top8, in RS>=0.8, out RS<0.5, max 3/sector | 17 | 94% | 45 | +7.5% | 107 | +14.1% | -28% | 0.70 | 0.65 | +20.8% | 0.89 | 100% | +13.2% / +11.9% | DVN: +12.8%, Sharpe 0.66 |
-| top8, in RS>=0.8, out RS<0.5, sell below 50d | 63 | 87% | 37 | +0.9% | 28 | +7.2% | -25% | 0.47 | 0.63 | -3.1% | -0.07 | 45% | +4.0% / -0.5% | DVN: +5.8%, Sharpe 0.40 |
-| top8, in RS>=0.8, out RS<0.5, sell below 50d after +30% over 200d | 33 | 90% | 46 | +2.7% | 54 | +10.6% | -26% | 0.63 | 0.70 | +5.0% | 0.36 | 80% | +8.9% / +6.3% | AVGO: +10.2%, Sharpe 0.61 |
 
 ## Rotation: pre-registered selection (2015 large caps, train+validation only)
 
@@ -275,8 +271,6 @@ Gates: train+val Sharpe > SPY's, ranking beats >= 90% of random selections, CAGR
 | top8, in RS>=0.8, out RS<0.5, volatility-adjusted | ❌ | 0.77 | train_val_sharpe_beats_spy, without_best_stock_beats_spy |
 | top8, in RS>=0.8, out RS<0.5, max 2/sector | ❌ | 0.57 | train_val_sharpe_beats_spy, ranking_beats_random, without_best_stock_beats_spy |
 | top8, in RS>=0.8, out RS<0.5, max 3/sector | ❌ | 0.65 | train_val_sharpe_beats_spy, without_best_stock_beats_spy |
-| top8, in RS>=0.8, out RS<0.5, sell below 50d | ❌ | 0.63 | train_val_sharpe_beats_spy, ranking_beats_random, without_best_stock_beats_spy |
-| top8, in RS>=0.8, out RS<0.5, sell below 50d after +30% over 200d | ❌ | 0.70 | train_val_sharpe_beats_spy, ranking_beats_random, without_best_stock_beats_spy |
 
 Calendar-year returns (2015 large caps, 20 bps per side):
 
@@ -305,8 +299,6 @@ Calendar-year returns (2015 large caps, 20 bps per side):
 | top8, in RS>=0.8, out RS<0.5, volatility-adjusted | +10% | +16% | +3% | +22% | -8% | +18% | +38% | +20% | +9% |
 | top8, in RS>=0.8, out RS<0.5, max 2/sector | -4% | +8% | +4% | +29% | -0% | +19% | +17% | +10% | +26% |
 | top8, in RS>=0.8, out RS<0.5, max 3/sector | -4% | +8% | +10% | +29% | -1% | +24% | +22% | +18% | +22% |
-| top8, in RS>=0.8, out RS<0.5, sell below 50d | +2% | +3% | +28% | +21% | +6% | +7% | +4% | +2% | -5% |
-| top8, in RS>=0.8, out RS<0.5, sell below 50d after +30% over 200d | +1% | +10% | +26% | +13% | +6% | +22% | +7% | +6% | +4% |
 
 ## Rockets (from 2016-11-21, 20 bps per side, 10 slots x 10%, max 3 new per day)
 
@@ -316,9 +308,9 @@ SPY: +15.1%/yr, max DD -34%, Sharpe 0.87 · train+val +15.2%/yr, Sharpe 0.87
 
 | variant | trades | win% | avg trade | median | ≥+50% | worst | random avg | excess vs random t (train+val) | 2015 large caps excess | CAGR | max DD | Sharpe | train+val CAGR / Sharpe | OOS CAGR | random-entry portfolio CAGR | without top 3 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| EPS surprise>0%, reaction>=5% | 1906 | 54 | +4.6% | +1.9% | 4.3% | -51% | +4.3% | -0.35% (-0.54) | -0.15% (n=562) | +7.7% | -40% | 0.46 | +10.4% / 0.58 | -2.8% | +16.9% | +7.7% |
+| EPS surprise>0%, reaction>=5% | 1907 | 54 | +4.6% | +1.9% | 4.3% | -51% | +4.3% | -0.33% (-0.51) | -0.15% (n=562) | +7.7% | -40% | 0.46 | +10.4% / 0.58 | -2.8% | +16.9% | +7.7% |
 | EPS surprise>0%, reaction>=10% | 925 | 53 | +6.1% | +1.6% | 6.3% | -51% | +4.3% | +0.78% (0.78) | +1.57% (n=130) | +23.8% | -43% | 0.99 | +25.4% / 1.06 | +14.1% | +16.9% | +22.8% |
-| EPS surprise>10%, reaction>=5% | 1267 | 53 | +5.0% | +2.1% | 5.0% | -51% | +4.3% | +0.60% (0.74) | -0.53% (n=268) | +13.0% | -45% | 0.64 | +21.7% / 0.96 | -15.8% | +16.9% | +13.8% |
+| EPS surprise>10%, reaction>=5% | 1268 | 53 | +5.0% | +2.1% | 5.0% | -51% | +4.3% | +0.64% (0.79) | -0.53% (n=268) | +13.3% | -45% | 0.65 | +22.1% / 0.98 | -15.8% | +16.9% | +14.0% |
 | EPS surprise>10%, reaction>=10% | 714 | 53 | +6.4% | +1.6% | 6.3% | -51% | +4.3% | +1.68% (1.39) | +1.95% (n=72) | +18.4% | -48% | 0.78 | +26.8% / 1.05 | -13.5% | +16.9% | +15.1% |
 | EPS surprise>20%, reaction>=10%, volume>=2x, RS>=0.8 | 243 | 56 | +8.5% | +2.8% | 7.0% | -36% | +4.3% | +3.55% (1.65) | +3.91% (n=14) | +17.7% | -27% | 0.91 | +25.0% / 1.25 | -9.1% | +16.9% | +11.7% |
 | EPS surprise>20%, reaction>=15%, volume>=2x, RS>=0.8 | 174 | 56 | +8.3% | +2.7% | 8.1% | -36% | +4.3% | +1.85% (0.78) | —% (n=4) | +14.3% | -24% | 0.86 | +19.8% / 1.20 | -6.6% | +16.9% | +9.1% |
@@ -348,11 +340,11 @@ Pre-registered gates: excess vs random entries t >= 2 (train+val); portfolio bea
 
 | group | policy | 2017 | 2018 | 2019 | 2020 | 2021 | 2022 | 2023 | 2024 | 2025 | 2026 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| combined | all | +0.96 | -0.44 | +0.34 | +1.07 | +0.02 | -0.44 | +0.53 | +0.42 | +0.23 | -0.04 |
-| combined | SPY>200d & stock>200d | +1.04 | -0.43 | +0.08 | +0.93 | -0.04 | -0.79 | +0.38 | +0.42 | +0.19 | -0.02 |
-| combined | SPY>200d & stock>200d & RS>=0.8 | +1.09 | -0.26 | +0.47 | +1.45 | -0.41 | -0.36 | +0.35 | +0.60 | +0.83 | +0.08 |
-| combined | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | +1.17 | -0.12 | +0.59 | +1.35 | -0.52 | -0.07 | +0.30 | +0.46 | +0.81 | +0.34 |
-| combined | score>=70 & SPY>200d & stock>200d | +0.81 | +0.65 | +0.42 | +1.15 | -0.54 | -0.96 | +0.43 | +0.69 | +0.52 | +0.10 |
+| combined | all | +0.94 | -0.44 | +0.30 | +1.11 | +0.02 | -0.44 | +0.53 | +0.42 | +0.23 | -0.04 |
+| combined | SPY>200d & stock>200d | +1.01 | -0.43 | +0.03 | +0.94 | -0.04 | -0.79 | +0.38 | +0.42 | +0.19 | -0.02 |
+| combined | SPY>200d & stock>200d & RS>=0.8 | +1.09 | -0.26 | +0.35 | +1.46 | -0.42 | -0.36 | +0.35 | +0.60 | +0.83 | +0.08 |
+| combined | SPY>200d & stock>200d & RS>=0.8 & high52>=0.9 | +1.17 | -0.12 | +0.45 | +1.36 | -0.53 | -0.07 | +0.30 | +0.46 | +0.81 | +0.34 |
+| combined | score>=70 & SPY>200d & stock>200d | +0.81 | +0.65 | +0.42 | +1.14 | -0.54 | -0.96 | +0.43 | +0.69 | +0.52 | +0.10 |
 | combined | score>=70 & SPY>200d & stock>200d & RS>=0.8 | +0.17 | +1.33 | +0.61 | +1.08 | -0.53 | -1.15 | +0.41 | +1.00 | +0.70 | +0.08 |
 | baseline_random | all | +1.59 | +0.06 | +0.55 | +0.98 | +0.15 | -0.28 | +0.61 | +0.42 | +0.30 | +0.19 |
 | baseline_random | SPY>200d & stock>200d | +1.76 | -0.25 | +0.52 | +0.86 | +0.16 | -0.78 | +0.27 | +0.42 | +0.21 | +0.14 |
