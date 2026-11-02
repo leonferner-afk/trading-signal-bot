@@ -50,4 +50,8 @@ def test_build_site_writes_the_page_and_history(tmp_path):
     assert "<script>" not in text and "&lt;script&gt;" in text                    # report content is escaped
     assert "<svg" in text and "LLY" in text and "2026-11-03 06:30 UTC" in text
     assert len(json.loads((tmp_path / "history.json").read_text(encoding="utf-8"))) == 2
+    status = json.loads((tmp_path / "site" / "status.json").read_text(encoding="utf-8"))
+    assert status["rotation_stake_sek"] == pytest.approx(2500.0) and status["rotation_value_sek"] == pytest.approx(2575.0)
+    assert status["spy_all_sek"] == pytest.approx(10100.0) and len(status["history"]) == 2
+    assert status["report_md"].startswith("# Rapport") and status["positions"][0]["symbol"] == "LLY"
     assert build_site(tmp_path / "missing", tmp_path / "x") is None

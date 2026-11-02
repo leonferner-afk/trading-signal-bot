@@ -231,6 +231,28 @@ kurser och valutakurser. Historik är ingen garanti för framtiden; varje affär
 """
 
 
+def status_payload(h: dict, report_md: str, history: list[dict], updated: str) -> dict:
+    """Everything the page shows, already computed — the same numbers as the
+    HTML page, as data (site/status.json) for other front ends, e.g. the
+    owner's claude.ai app, which gets it copied into its database."""
+    base = h["base_sek"]
+    rot_stake, rot_value = _rotation_part(h)
+    spy_pct = h.get("index_sek_pct")
+    return {
+        "updated": updated, "since": h["since"], "base_sek": base, "total_sek": h["total_sek"],
+        "delta_sek": h["delta_sek"], "delta_pct": h["delta_pct"],
+        "index_pct": h.get("index_pct") or 0.0, "index_sek_pct": spy_pct,
+        "rotation_stake_sek": round(rot_stake, 2), "rotation_value_sek": round(rot_value, 2),
+        "spy_all_sek": round(base * (1 + spy_pct / 100), 2) if spy_pct is not None else None,
+        "rocket_paper_sek": h.get("rocket_paper_sek"),
+        "positions": [{"symbol": p["symbol"], "kind": p.get("kind", "rotation"), "status": p["status"],
+                       "sek_return_pct": p.get("sek_return_pct")} for p in h.get("positions", [])],
+        "history": [{"date": p["date"], "total_sek": p["total_sek"], "spy_sek": p.get("spy_sek"),
+                     "rocket_sek": p.get("rocket_sek")} for p in history],
+        "report_md": report_md,
+    }
+
+
 def build_site(state_dir: Path, out_dir: Path, now: dt.datetime | None = None) -> Path | None:
     """Reads the run's files from `state_dir`, updates state_dir/history.json
     and writes out_dir/index.html. None when there is no tracker data yet."""
@@ -246,6 +268,9 @@ def build_site(state_dir: Path, out_dir: Path, now: dt.datetime | None = None) -
     history = update_history(history, h, now.strftime("%Y-%m-%d"))
     history_path.write_text(json.dumps(history, indent=1), encoding="utf-8")
     out_dir.mkdir(parents=True, exist_ok=True)
+    updated = now.strftime("%Y-%m-%d %H:%M UTC")
     page = out_dir / "index.html"
-    page.write_text(build_html(h, report, history, now.strftime("%Y-%m-%d %H:%M UTC")), encoding="utf-8")
+    page.write_text(build_html(h, report, history, updated), encoding="utf-8")
+    (out_dir / "status.json").write_text(json.dumps(status_payload(h, report, history, updated), ensure_ascii=False),
+                                         encoding="utf-8")
     return page
