@@ -61,7 +61,7 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
 
     from app.data.stock_client import DataUnavailable, StockClient
     from app.db import init_db
-    from app.hypothetical import FX_SYMBOL, format_hypothetical_message, hypothetical_value, to_utc
+    from app.hypothetical import FX_SYMBOL, format_hypothetical_message, hypothetical_value, to_utc, trade_rows
     from app.journal import repository as journal
     from app.live_rotation import _bot_share_pct, bot_capital, rocket_pot_capital
     from app.paper_trading.simulator import current_mark
@@ -87,8 +87,7 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
     open_pot = [r for r in pot_records if r.result == "OPEN"]
     open_rockets = [r for r in rocket_taken if r.result == "OPEN"]
     with StockClient() as client:
-        client.prefetch(sorted({r.symbol for r in open_records + open_pot + held_at_restart + open_rockets})
-                        + [FX_SYMBOL], "1d", limit=400)
+        client.prefetch(sorted({r.symbol for r in records + pot_records + open_rockets}) + [FX_SYMBOL], "1d", limit=400)
         rocket_marks = {r.id: current_mark(client, r) for r in open_rockets}
         marks = {r.symbol: current_mark(client, r) for r in open_records}
         pot_marks = {r.id: current_mark(client, r) for r in open_pot}
@@ -101,6 +100,12 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
             before = bars[bars["close_time"] <= since_ts]
             if not before.empty:
                 base_closes[r.symbol] = float(before["close"].iloc[-1])
+        trade_bars = {}
+        for symbol in {r.symbol for r in records + pot_records}:
+            try:
+                trade_bars[symbol] = client.get_klines(symbol, "1d", limit=400)
+            except DataUnavailable:
+                pass
         try:
             fx = client.get_klines(FX_SYMBOL, "1d", limit=400)
         except DataUnavailable:
@@ -149,9 +154,14 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
             "pot_pct": round(pot_pct, 2), "index_pct": result.index_pct, "index_sek_pct": result.index_sek_pct,
             "positions": [
                 {"symbol": p.symbol, "kind": p.kind, "status": p.status, "usd_return_pct": p.usd_return_pct,
-                 "sek_return_pct": p.sek_return_pct}
+                 "sek_return_pct": p.sek_return_pct, "id": p.record_id, "entry_price": p.entry_price,
+                 "last_price": p.last_price, "invested_sek": p.invested_sek, "sell_signaled": p.sell_signaled,
+                 "value_sek": None if p.sek_return_pct is None or p.invested_sek is None
+                 else round(p.invested_sek * (1 + p.sek_return_pct / 100), 2)}
                 for p in result.positions
             ],
+            "trades": trade_rows(records, "rotation", trade_bars, lambda r: marks.get(r.symbol))
+                      + trade_rows(pot_records, "lekpott", trade_bars, lambda r: pot_marks.get(r.id)),
         }
         with open(args.out, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, indent=2)

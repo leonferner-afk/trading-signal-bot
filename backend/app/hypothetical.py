@@ -70,6 +70,11 @@ class PositionOutcome:
     fx_now: float | None
     sek_return_pct: float | None      # None -> FX unknown, excluded from the total
     kind: str = "rotation"            # "rotation" | "lekpott"
+    entry_price: float | None = None  # USD: the fill (or the close at a restart)
+    last_price: float | None = None   # USD: the last close, or the exit price once closed
+    invested_sek: float | None = None # the position's fixed kronor slot
+    sell_signaled: bool = False       # sell decided, fills at the next open
+    record_id: int | None = None
 
 
 @dataclass
@@ -93,16 +98,17 @@ def evaluate_position(record: SignalRecord, mark: dict | None, fx: pd.DataFrame,
     entry_ts = to_utc(record.timestamp)
     if record.result == "OPEN":
         if mark is None or mark.get("fill_price") is None:
-            return PositionOutcome(record.symbol, "pending", None, None, None, None)
+            return PositionOutcome(record.symbol, "pending", None, None, None, None,
+                                   last_price=(mark or {}).get("last_close"))
         fx_entry, fx_now = fx_rate_on(fx, entry_ts), fx_rate_on(fx, now)
-        usd_r, status = mark["unrealized_pct"], "open"
+        usd_r, status, entry, last = mark["unrealized_pct"], "open", mark["fill_price"], mark.get("last_close")
     else:
         fx_entry, fx_now = fx_rate_on(fx, entry_ts), fx_rate_on(fx, to_utc(record.closed_at))
-        usd_r, status = record.return_pct, "closed"
+        usd_r, status, entry, last = record.return_pct, "closed", record.fill_price, record.exit_price
     if usd_r is None or fx_entry is None or fx_now is None:
-        return PositionOutcome(record.symbol, status, usd_r, fx_entry, fx_now, None)
+        return PositionOutcome(record.symbol, status, usd_r, fx_entry, fx_now, None, entry_price=entry, last_price=last)
     sek_r = ((1 + usd_r / 100) * (fx_now / fx_entry) - 1) * 100
-    return PositionOutcome(record.symbol, status, usd_r, fx_entry, fx_now, round(sek_r, 3))
+    return PositionOutcome(record.symbol, status, usd_r, fx_entry, fx_now, round(sek_r, 3), entry_price=entry, last_price=last)
 
 
 def evaluate_rebased(record: SignalRecord, mark: dict | None, fx: pd.DataFrame, now: pd.Timestamp,
@@ -115,12 +121,14 @@ def evaluate_rebased(record: SignalRecord, mark: dict | None, fx: pd.DataFrame, 
     else:
         last, fx_now, status = record.exit_price, fx_rate_on(fx, to_utc(record.closed_at)), "closed"
     if not base_close or last is None:
-        return PositionOutcome(record.symbol, status, None, fx_base, fx_now, None)
+        return PositionOutcome(record.symbol, status, None, fx_base, fx_now, None, entry_price=base_close, last_price=last)
     usd_r = (last / base_close - 1) * 100
     if fx_base is None or fx_now is None:
-        return PositionOutcome(record.symbol, status, round(usd_r, 3), fx_base, fx_now, None)
+        return PositionOutcome(record.symbol, status, round(usd_r, 3), fx_base, fx_now, None,
+                               entry_price=base_close, last_price=last)
     sek_r = ((1 + usd_r / 100) * (fx_now / fx_base) - 1) * 100
-    return PositionOutcome(record.symbol, status, round(usd_r, 3), fx_base, fx_now, round(sek_r, 3))
+    return PositionOutcome(record.symbol, status, round(usd_r, 3), fx_base, fx_now, round(sek_r, 3),
+                           entry_price=base_close, last_price=last)
 
 
 def hypothetical_value(records: list[SignalRecord], marks: dict[str, dict | None], fx: pd.DataFrame,
@@ -140,17 +148,23 @@ def hypothetical_value(records: list[SignalRecord], marks: dict[str, dict | None
     slot = managed * (1 - pot_pct / 100) / max_positions
     pot_slot = managed * pot_pct / 100 * POT_WEIGHT
     positions = []
+
+    def add(p: PositionOutcome, r: SignalRecord, kind: str) -> None:
+        p.kind = kind
+        p.invested_sek = round(pot_slot if kind == "lekpott" else slot, 2)
+        p.sell_signaled = r.result == "OPEN" and bool(r.exit_signal_at)
+        p.record_id = r.id
+        positions.append(p)
+
     for r in records:
         if since is not None and r.result != "OPEN" and r.closed_at is not None and to_utc(r.closed_at) <= since:
             continue
         if since is not None and to_utc(r.timestamp) < since:
-            positions.append(evaluate_rebased(r, marks.get(r.symbol), fx, now, since, (base_closes or {}).get(r.symbol)))
+            add(evaluate_rebased(r, marks.get(r.symbol), fx, now, since, (base_closes or {}).get(r.symbol)), r, "rotation")
         else:
-            positions.append(evaluate_position(r, marks.get(r.symbol), fx, now))
+            add(evaluate_position(r, marks.get(r.symbol), fx, now), r, "rotation")
     for r in pot_records:
-        p = evaluate_position(r, (pot_marks or {}).get(r.id), fx, now)
-        p.kind = "lekpott"
-        positions.append(p)
+        add(evaluate_position(r, (pot_marks or {}).get(r.id), fx, now), r, "lekpott")
     delta = sum((pot_slot if p.kind == "lekpott" else slot) * p.sek_return_pct / 100
                 for p in positions if p.sek_return_pct is not None)
     missing = sum(1 for p in positions if p.status != "pending" and p.sek_return_pct is None)
@@ -224,3 +238,35 @@ def rocket_portfolio_sek(taken: list[SignalRecord], marks: dict[int, dict | None
             continue
         delta += base_sek * POT_WEIGHT * p.sek_return_pct / 100
     return round(base_sek + delta, 2), missing
+
+
+def trade_rows(records: list[SignalRecord], kind: str, bars: dict[str, pd.DataFrame], mark_of) -> list[dict]:
+    """Every trade as a broker would list it: when it was bought (the first
+    session after the signal, at its open) and at what price, and — once
+    closed — when it was sold, at what price and with what result (USD,
+    after fees). `mark_of(record)` gives the open position's current mark.
+    Dates are the session's date; nothing unknown is filled in."""
+    rows = []
+    for r in records:
+        df = bars.get(r.symbol)
+        after = df[df["close_time"] > to_utc(r.timestamp)] if df is not None else None
+        buy_date = str(after["close_time"].iloc[0])[:10] if after is not None and not after.empty else None
+        if r.result == "OPEN":
+            m = mark_of(r) or {}
+            buy_price = m.get("fill_price")
+            status = "open" if buy_price is not None else "pending"
+            if status == "pending":
+                buy_date = None
+            rows.append({"id": r.id, "symbol": r.symbol, "kind": kind, "status": status,
+                         "signal_date": r.timestamp[:10], "buy_date": buy_date, "buy_price": buy_price,
+                         "last_price": m.get("last_close"), "unrealized_pct": m.get("unrealized_pct"),
+                         "sell_signal_date": (r.exit_signal_at or "")[:10] or None, "sell_reason": r.exit_reason,
+                         "sell_date": None, "sell_price": None, "return_pct": None})
+        else:
+            rows.append({"id": r.id, "symbol": r.symbol, "kind": kind, "status": "closed",
+                         "signal_date": r.timestamp[:10], "buy_date": buy_date, "buy_price": r.fill_price,
+                         "last_price": r.exit_price, "unrealized_pct": None,
+                         "sell_signal_date": (r.exit_signal_at or "")[:10] or None, "sell_reason": r.exit_reason,
+                         "sell_date": str(r.closed_at)[:10] if r.closed_at else None, "sell_price": r.exit_price,
+                         "return_pct": None if r.return_pct is None else round(r.return_pct, 2)})
+    return rows

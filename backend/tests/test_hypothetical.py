@@ -155,3 +155,35 @@ def test_unknown_index_move_is_excluded_not_guessed():
     result = hypothetical_value([], {}, fx, base_sek=10000, index_pct=75.0, index_sek_pct=None, now=NOW)
     assert result.total_sek == 10000 and result.fx_missing == 1
     assert "kurs saknas" in format_hypothetical_message(result, "2026-09-26")
+
+
+def test_trade_rows_list_buys_and_sells_like_a_broker():
+    from app.hypothetical import trade_rows
+
+    days = pd.bdate_range("2026-10-26", periods=5)
+    bars = pd.DataFrame({"close_time": (days.tz_localize("America/New_York") + pd.Timedelta(hours=16)).tz_convert("UTC")})
+    closed = _record("NOW", "2026-10-26T20:00:00Z", result="ROTATION_EXIT", return_pct=-31.5,
+                     closed_at=dt.datetime(2026, 10, 29, 20, 0))
+    closed.fill_price, closed.exit_price, closed.exit_reason = 151.92, 109.13, "aktien stängde under sitt 200-dagars snitt"
+    held = _record("LLY", "2026-10-27T20:00:00Z")
+    held.exit_signal_at = "2026-10-29T20:00:00+00:00"
+    waiting = _record("TMO", "2026-10-30T20:00:00Z")
+    marks = {"LLY": {"fill_price": 1273.5, "last_close": 1417.54, "unrealized_pct": 11.3}, "TMO": {"fill_price": None, "last_close": 690.0}}
+    rows = {r["symbol"]: r for r in trade_rows([closed, held, waiting], "rotation", {s: bars for s in ("NOW", "LLY", "TMO")},
+                                               lambda r: marks.get(r.symbol))}
+    assert rows["NOW"]["status"] == "closed"
+    assert (rows["NOW"]["buy_date"], rows["NOW"]["buy_price"], rows["NOW"]["sell_date"], rows["NOW"]["sell_price"]) == \
+        ("2026-10-27", 151.92, "2026-10-29", 109.13)
+    assert rows["NOW"]["return_pct"] == -31.5 and "200-dagars" in rows["NOW"]["sell_reason"]
+    assert rows["LLY"]["status"] == "open" and rows["LLY"]["buy_date"] == "2026-10-28" and rows["LLY"]["sell_signal_date"] == "2026-10-29"
+    assert rows["TMO"]["status"] == "pending" and rows["TMO"]["buy_date"] is None and rows["TMO"]["buy_price"] is None
+
+
+def test_positions_carry_prices_and_their_kronor_slot():
+    fx = _fx([("2026-09-26", 9.50), ("2026-09-29", 9.50)])
+    rec = _record("AMD", "2026-09-26T20:00:00Z")
+    rec.id = 3
+    result = hypothetical_value([rec], {"AMD": {"fill_price": 100.0, "last_close": 110.0, "unrealized_pct": 10.0}}, fx,
+                                base_sek=10000.0, max_positions=8, now=NOW, index_pct=75.0, index_sek_pct=0.0)
+    p = result.positions[0]
+    assert (p.entry_price, p.last_price, p.invested_sek, p.record_id, p.sell_signaled) == (100.0, 110.0, 312.5, 3, False)
