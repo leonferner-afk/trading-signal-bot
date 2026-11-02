@@ -103,6 +103,14 @@ jobs:
         run: >-
           python -m app.cli hypothetical --base-sek "${HYPOTHETICAL_BASE_SEK:-10000}" --since "$HYPOTHETICAL_SINCE"
           --out "$GITHUB_WORKSPACE/state/hypothetical.json"
+      - name: Build the status page
+        # Public page (GitHub Pages) with the tracker, its history and the
+        # day's report — built from the files above, published by `pages`.
+        if: always() && !inputs.dry_run
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+        run: python -m app.cli dashboard --state "$GITHUB_WORKSPACE/state" --out "$GITHUB_WORKSPACE/state/site"
       - name: Save journal and reports
         if: always() && !inputs.dry_run
         working-directory: state
@@ -136,3 +144,30 @@ jobs:
           for wf in daily.yml research.yml; do
             gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/enable" || echo "could not re-enable $wf"
           done
+
+  pages:
+    # Publishes state/site to https://<owner>.github.io/<repo>/. Needs GitHub
+    # Pages switched on once (Settings → Pages → Source: GitHub Actions);
+    # until then this job fails without affecting the daily run.
+    needs: daily
+    if: always() && !inputs.dry_run && needs.daily.result != 'cancelled'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: bot-state
+          path: state
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: state/site
+      - id: deploy
+        uses: actions/deploy-pages@v4

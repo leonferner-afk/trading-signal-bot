@@ -42,6 +42,17 @@ def cmd_daily(args: argparse.Namespace) -> int:
     return 0 if outcome.ok else 1
 
 
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    """Rebuilds the public status page (GitHub Pages) from the run's files."""
+    from pathlib import Path
+
+    from app.dashboard import build_site
+
+    page = build_site(Path(args.state), Path(args.out))
+    print(f"Status page: {page}" if page else "No hypothetical.json yet — no status page built.")
+    return 0
+
+
 def cmd_hypothetical(args: argparse.Namespace) -> int:
     """Prints (and optionally writes as JSON) "if you'd put base-sek kronor
     (default 10 000) into the live rotation on day one" — informational only, no real money.
@@ -167,6 +178,11 @@ def main(argv: list[str] | None = None) -> int:
     hypothetical.add_argument("--since", default="", help="restart: a session close (ISO, UTC); empty = from the first trade")
     hypothetical.add_argument("--out", default="", help="optional path to write a JSON summary")
     hypothetical.set_defaults(func=cmd_hypothetical)
+
+    dashboard = sub.add_parser("dashboard", help="rebuild the public status page from the bot-state files")
+    dashboard.add_argument("--state", required=True, help="checked-out bot-state directory")
+    dashboard.add_argument("--out", required=True, help="where to write index.html")
+    dashboard.set_defaults(func=cmd_dashboard)
 
     args = parser.parse_args(argv)
     return args.func(args)

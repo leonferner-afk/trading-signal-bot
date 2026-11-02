@@ -16,6 +16,10 @@ och när du ska sälja**. Den handlar **aldrig** själv — du lägger orderna.
 3. Räknar ut varje akties relativa styrka (6-månadersavkastning som percentil i universumet) och om den ligger över sitt 200-dagars glidande medelvärde.
 4. Fattar dagens beslut med regeln nedan och skickar KÖP NU / SÄLJ NU.
 5. Skriver en rapport (`reports/ÅÅÅÅ-MM-DD.md` på grenen `bot-state`) och skapar en GitHub-issue när något ska göras.
+6. Bygger om **statussidan** (https://leonferner-afk.github.io/trading-signal-bot/): den hypotetiska räknaren, en kurva
+   över tid mot "allt i S&P 500", innehaven och dagens rapport (`app/dashboard.py`, historiken i `history.json` på
+   `bot-state`). Kräver att GitHub Pages är påslaget en gång: Settings → Pages → Source: **GitHub Actions**.
+   Sidan är offentlig, precis som repot.
 
 Skydd som alltid gäller:
 

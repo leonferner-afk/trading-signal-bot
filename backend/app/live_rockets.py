@@ -355,7 +355,8 @@ def build_rocket_section(day: RocketDay | None, open_rockets: list[tuple], close
             if record.exit_signal_at:
                 kind += ", säljs vid öppning"
             if not mark or mark.get("fill_price") is None:
-                lines.append(f"| {record.symbol} | {kind} | nästa öppning | {mark['last_close'] if mark else '?'} | — | 0 |")
+                last = f"{mark['last_close']:.2f}" if mark and mark.get("last_close") is not None else "?"
+                lines.append(f"| {record.symbol} | {kind} | nästa öppning | {last} | — | 0 |")
             else:
                 lines.append(f"| {record.symbol} | {kind} | {mark['fill_price']:g} | {mark['last_close']:g} | "
                              f"{mark['unrealized_pct']:+.1f}% | {mark['sessions_held']} |")
