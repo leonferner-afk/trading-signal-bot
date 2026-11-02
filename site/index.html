@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tradingbot — läget</title>
+<style>
+:root { --bg:#f6f7f9; --card:#ffffff; --text:#14171f; --muted:#5f6675; --line:#e3e6eb; --up:#0f7b3f; --down:#c0352b; --accent:#2f5bd3; }
+@media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --card:#181b22; --text:#e8eaef; --muted:#9aa1ad; --line:#2a2f39; --up:#3fbf72; --down:#ef6a5e; --accent:#7c9dff; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+main { max-width:880px; margin:0 auto; padding:20px 16px 48px; }
+h1 { font-size:1.4rem; margin:0 0 4px; } h2 { font-size:1.1rem; margin:28px 0 10px; }
+.muted { color:var(--muted); font-size:.9rem; }
+.hero { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; margin-top:16px; }
+.big { font-size:2.2rem; font-weight:700; letter-spacing:-.02em; }
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; margin-top:12px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+.label { font-weight:600; } .sub { color:var(--muted); font-size:.85rem; } .value { font-size:1.25rem; font-weight:600; margin-top:4px; }
+.up { color:var(--up); } .down { color:var(--down); }
+.chartbox { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; }
+.chart { width:100%; max-width:640px; height:auto; display:block; margin:0 auto; } .chart .grid { stroke:var(--line); }
+.chart .axis { fill:var(--muted); font-size:14px; }
+.legend { display:flex; flex-wrap:wrap; gap:14px; font-size:.85rem; color:var(--muted); margin-top:6px; }
+.legend i { display:inline-block; width:12px; height:3px; margin-right:6px; vertical-align:middle; }
+table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; font-size:.95rem; }
+th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
+.report { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:4px 16px 12px; overflow-x:auto; }
+.report table { border:0; } .report blockquote { margin:8px 0; padding:6px 12px; border-left:3px solid var(--accent); color:var(--muted); }
+.note { margin-top:28px; color:var(--muted); font-size:.85rem; }
+</style>
+</head>
+<body>
+<main>
+<h1>📈 Tradingbot — läget</h1>
+<div class="muted">Allt på papper sedan 2026-11-01. Uppdaterad 2026-11-02 13:05 UTC.</div>
+
+<div class="hero">
+  <div class="muted">Hypotetiska 10 000 kr sedan 2026-10-30</div>
+  <div class="big">10 000 kr</div>
+  <div class="value ">+0 kr (+0,0 %)</div>
+  <div class="grid"><div class="card"><div class="label">S&amp;P 500-fonden</div><div class="sub">insats 7 500 kr</div><div class="value ">+0,0 %</div></div>
+<div class="card"><div class="label">Rotationen (boten)</div><div class="sub">insats 2 500 kr</div><div class="value ">+0,0 %</div></div>
+<div class="card"><div class="label">Om allt låg i S&amp;P 500</div><div class="sub">insats 10 000 kr</div><div class="value ">10 000 kr</div></div>
+<div class="card"><div class="label">Raketportfölj (papper, på kul)</div><div class="sub">insats 10 000 kr</div><div class="value up">10 152 kr</div></div></div>
+</div>
+
+<h2>Utveckling sedan omstarten</h2>
+<div class="chartbox"><svg viewBox="0 0 480 220" role="img" aria-label="Utveckling sedan omstarten" class="chart"><line x1="74" x2="470" y1="204.0" y2="204.0" class="grid"/><text x="68" y="208.0" text-anchor="end" class="axis">10 000 kr</text><line x1="74" x2="470" y1="110.0" y2="110.0" class="grid"/><text x="68" y="114.0" text-anchor="end" class="axis">10 076 kr</text><line x1="74" x2="470" y1="16.0" y2="16.0" class="grid"/><text x="68" y="20.0" text-anchor="end" class="axis">10 152 kr</text><text x="74.0" y="219" text-anchor="start" class="axis">2026-10-30</text><text x="470.0" y="219" text-anchor="end" class="axis">2026-11-02</text><polyline points="74.0,204.0 470.0,204.0" fill="none" stroke="var(--accent)" stroke-width="2.5"/><circle cx="74.0" cy="204.0" r="3" fill="var(--accent)"/><circle cx="470.0" cy="204.0" r="3" fill="var(--accent)"/><polyline points="74.0,204.0 470.0,204.0" fill="none" stroke="var(--muted)" stroke-width="2.5"/><circle cx="74.0" cy="204.0" r="3" fill="var(--muted)"/><circle cx="470.0" cy="204.0" r="3" fill="var(--muted)"/><polyline points="470.0,16.0" fill="none" stroke="var(--up)" stroke-width="2.5"/><circle cx="470.0" cy="16.0" r="3" fill="var(--up)"/></svg><div class="legend"><span><i style="background:var(--accent)"></i>Din fördelning</span><span><i style="background:var(--muted)"></i>Allt i S&amp;P 500</span><span><i style="background:var(--up)"></i>Raketportfölj (papper)</span></div></div>
+
+<h2>Rotationens innehav (i kronor sedan omstarten)</h2>
+<table><thead><tr><th>Aktie</th><th>Status</th><th>Resultat</th></tr></thead><tbody>
+<tr><td>AMD</td><td>öppen</td><td class="">+0,0 %</td></tr>
+<tr><td>MU</td><td>öppen</td><td class="">+0,0 %</td></tr>
+<tr><td>CRWD</td><td>öppen</td><td class="">+0,0 %</td></tr>
+<tr><td>PANW</td><td>öppen</td><td class="">+0,0 %</td></tr>
+<tr><td>ADP</td><td>öppen</td><td class="">+0,0 %</td></tr>
+<tr><td>TMO</td><td>öppen</td><td class="">+0,0 %</td></tr>
+<tr><td>LLY</td><td>öppen</td><td class="">+0,0 %</td></tr>
+<tr><td>PLTR</td><td>öppen</td><td class="">+0,0 %</td></tr>
+</tbody></table>
+
+<h2>Dagens rapport från boten</h2>
+<div class="report"><h2>Tradingbot 2026-11-02</h2>
+<p><strong>Marknaden:</strong> SPY okänt sitt 200-dagars snitt<br><strong>Strategi:</strong> momentum-rotation — top8, in RS&gt;=0.8, out RS&lt;0.5<br><strong>Portfölj:</strong> $10,000: rotationen $2,500 · S&amp;P 500-fond $7,500 som boten inte rör · 8/8 innehav · senaste handelsdag i datan: 2026-10-30</p>
+<blockquote>⚠ Reglerna klarar inte forskningens förhandsbestämda krav (slår inte SPY riskjusterat). Ingen testad variant har slagit att bara äga en S&amp;P 500-fond riskjusterat — se signalerna som ett aktivt alternativ med ungefär indexlik historik, inte som en bevisad fördel.</blockquote>
+<h3>🟢 KÖP (0)</h3>
+<p>Ingen ny handelsdag sedan förra körningen (helgdag eller omkörning) — inga nya beslut.</p>
+<h3>🔴 SÄLJ (0)</h3>
+<p>Inga säljsignaler idag.</p>
+<h3>📊 Innehav (8/8)</h3>
+<table><thead><tr><th>Aktie</th><th>Köpt</th><th>Senast</th><th>Resultat</th><th>Rel. styrka nu</th><th>Dagar</th></tr></thead><tbody><tr><td>AMD</td><td>624.9</td><td>504.8</td><td>-19.2%</td><td>—</td><td>25</td></tr><tr><td>MU</td><td>1075.81</td><td>884.74</td><td>-17.8%</td><td>—</td><td>25</td></tr><tr><td>CRWD</td><td>257.19</td><td>250.43</td><td>-2.6%</td><td>—</td><td>24</td></tr><tr><td>PANW</td><td>390.1</td><td>365.87</td><td>-6.2%</td><td>—</td><td>24</td></tr><tr><td>ADP</td><td>296.86</td><td>293.84</td><td>-1.0%</td><td>—</td><td>7</td></tr><tr><td>TMO</td><td>672.69</td><td>697</td><td>+3.6%</td><td>—</td><td>6</td></tr><tr><td>LLY</td><td>1273.5</td><td>1417.54</td><td>+11.3%</td><td>—</td><td>4</td></tr><tr><td>PLTR</td><td>193.625</td><td>184.11</td><td>-4.9%</td><td>—</td><td>1</td></tr></tbody></table>
+<h3>📈 Resultat hittills (papperstrading, riktiga fyllnadspriser, avgifter inräknade)</h3>
+<p>5 stängda affärer · 0% vinnare · snitt -21.67% per affär</p>
+<hr>
+<p>Backtest av exakt dessa regler (backtest 8.7 år på storbolag valda 2015, samma regler): +15.9%/år, största nedgång -29% — SPY samma period +14.9%/år, största nedgång -34%.<br>Universum: 107 aktier (0 utan data idag).<br>Boten handlar aldrig åt dig. Historik är ingen garanti — varje affär kan förlora.</p>
+<h3>⚖️ Mot index (SPY) — måttstocken som räknas</h3>
+<p>Sedan 2026-09-25: rotationen <strong>-18.1 %</strong> · SPY <strong>-2.0 %</strong> · skillnad <strong>-16.1 procentenheter</strong>.<br>Med fördelningen 25 % bot / 75 % S&amp;P 500-fond: <strong>-6.1 %</strong> under samma tid.</p>
+<table><thead><tr><th>Kvartal</th><th>Rotationen</th><th>SPY</th><th>Skillnad</th></tr></thead><tbody><tr><td>2026 K3 (från 2026-09-25)</td><td>-0.5 %</td><td>-1.1 %</td><td>+0.6</td></tr><tr><td>2026 K4 (pågår)</td><td>-17.7 %</td><td>-0.9 %</td><td>-16.8</td></tr></tbody></table>
+<p>Bedöm boten över 1–2 år mot SPY, inte på enskilda dagar eller veckor. Öppna innehav räknas till senaste stängning (utan säljavgift), tomma platser som kontanter.</p>
+<h3>🚀 Raketer — papperstrading (köp inte)</h3>
+<table><thead><tr><th>Raket</th><th>Typ</th><th>&#x27;Köpt&#x27;</th><th>Senast</th><th>Resultat</th><th>Dagar</th></tr></thead><tbody><tr><td>CCL</td><td>papper</td><td>24.66</td><td>28.83</td><td>+16.9%</td><td>22</td></tr><tr><td>TDOC</td><td>lekpott</td><td>nästa öppning</td><td>8.51</td><td>—</td><td>0</td></tr></tbody></table>
+<p>🚀 Raketportfölj (papper, på kul) sedan 2026-09-30: 10 000 $ → <strong>10 169 $</strong> (+1.7 %) · 2 öppna · 0 avslutade · 0 signaler fick inte plats.<br>Samma storlek som i testet: 10 % per raket, högst 10 samtidigt, högst 3 nya per dag. Regeln är inte bevisad — det här är ett experiment, inga riktiga pengar.</p>
+<p>Inga avslutade pappersraketer ännu.</p></div>
+
+<p class="note">Inga riktiga pengar handlas — boten handlar aldrig åt dig. Siffrorna är hypotetiska och räknade på riktiga
+kurser och valutakurser. Historik är ingen garanti för framtiden; varje affär kan förlora.</p>
+</main>
+</body>
+</html>
