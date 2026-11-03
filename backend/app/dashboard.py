@@ -16,12 +16,23 @@ import shutil
 from pathlib import Path
 
 
+def _fund_pct(h: dict) -> float | None:
+    """The fund part's move; older files without a fund held the S&P 500."""
+    return h["fund_sek_pct"] if "fund_sek_pct" in h else h.get("index_sek_pct")
+
+
+def _fund_name(h: dict) -> str:
+    from app.hypothetical import fund_name
+
+    return fund_name(h.get("fund_symbol") or "SPY")
+
+
 def _rotation_part(h: dict) -> tuple[float, float]:
     """(rotation stake, its value now) — the rest of the tracker after the index part."""
     base = h["base_sek"]
     index_pct = h.get("index_pct") or 0.0
     index_stake = base * index_pct / 100
-    index_delta = index_stake * (h.get("index_sek_pct") or 0.0) / 100
+    index_delta = index_stake * (_fund_pct(h) or 0.0) / 100
     stake = base - index_stake
     return stake, stake + h["delta_sek"] - index_delta
 
@@ -149,10 +160,11 @@ def build_html(h: dict, report_md: str, history: list[dict], updated: str) -> st
     index_pct = h.get("index_pct") or 0.0
     index_stake = base * index_pct / 100
     spy_pct = h.get("index_sek_pct")
+    fund_pct = _fund_pct(h)
     cards = [
-        ("S&P 500-fonden", _kr(index_stake), _pct(spy_pct), spy_pct) if index_pct else None,
+        (_fund_name(h) + "en", _kr(index_stake), _pct(fund_pct), fund_pct) if index_pct else None,
         ("Rotationen (boten)", _kr(rot_stake), _pct((rot_value / rot_stake - 1) * 100 if rot_stake else None),
-         (rot_value / rot_stake - 1) * 100 if rot_stake else None),
+         (rot_value / rot_stake - 1) * 100 if rot_stake else None) if rot_stake else None,
         ("Om allt låg i S&P 500", _kr(base), _kr(base * (1 + spy_pct / 100)) if spy_pct is not None else "—", spy_pct),
         ("Raketportfölj (papper, på kul)", _kr(base),
          _kr(h["rocket_paper_sek"]) if h.get("rocket_paper_sek") is not None else "inga raketer ännu",
@@ -243,6 +255,7 @@ def status_payload(h: dict, report_md: str, history: list[dict], updated: str) -
         "updated": updated, "since": h["since"], "base_sek": base, "total_sek": h["total_sek"],
         "delta_sek": h["delta_sek"], "delta_pct": h["delta_pct"],
         "index_pct": h.get("index_pct") or 0.0, "index_sek_pct": spy_pct,
+        "fund_symbol": h.get("fund_symbol") or "SPY", "fund_name": _fund_name(h), "fund_sek_pct": _fund_pct(h),
         "rotation_stake_sek": round(rot_stake, 2), "rotation_value_sek": round(rot_value, 2),
         "spy_all_sek": round(base * (1 + spy_pct / 100), 2) if spy_pct is not None else None,
         "rocket_paper_sek": h.get("rocket_paper_sek"),

@@ -89,6 +89,15 @@ class HypotheticalResult:
     pot_pct: float = 0.0
     index_pct: float = 0.0
     index_sek_pct: float | None = None    # SPY in kronor since the start; None = unknown
+    fund_symbol: str = "SPY"              # what the fund part holds
+    fund_sek_pct: float | None = None     # the fund part's move in kronor (= index_sek_pct when it is SPY)
+
+
+FUND_NAMES = {"SPY": "S&P 500-fond", "QQQ": "Nasdaq 100-fond"}
+
+
+def fund_name(symbol: str) -> str:
+    return FUND_NAMES.get(symbol, f"{symbol}-fond")
 
 
 def evaluate_position(record: SignalRecord, mark: dict | None, fx: pd.DataFrame, now: pd.Timestamp) -> PositionOutcome:
@@ -136,13 +145,18 @@ def hypothetical_value(records: list[SignalRecord], marks: dict[str, dict | None
                        now: pd.Timestamp | None = None, since: pd.Timestamp | None = None,
                        base_closes: dict[str, float] | None = None, pot_records: list[SignalRecord] = (),
                        pot_marks: dict[int, dict | None] | None = None, pot_pct: float = 0.0,
-                       index_pct: float = 0.0, index_sek_pct: float | None = None) -> HypotheticalResult:
+                       index_pct: float = 0.0, index_sek_pct: float | None = None,
+                       fund_symbol: str = "SPY", fund_sek_pct: float | None = None) -> HypotheticalResult:
     """`records`: every rotation SignalRecord ever created (open or
     closed) — a slot's par value is untouched until its own trade resolves,
     so replaying the whole history is equivalent to (and simpler than)
     tracking running slot state day by day. `marks` by symbol for open
     rotation records, `pot_marks` by record id for open lekpott rockets.
-    `pot_pct` is a share of the managed part (the stake minus `index_pct`)."""
+    `pot_pct` is a share of the managed part (the stake minus `index_pct`).
+    The `index_pct` part sits in `fund_symbol` and moves by `fund_sek_pct`
+    (default: the S&P 500's `index_sek_pct`, which stays the comparison)."""
+    if fund_symbol == "SPY" and fund_sek_pct is None:
+        fund_sek_pct = index_sek_pct
     now = now or pd.Timestamp.now(tz="UTC")
     managed = base_sek * (1 - index_pct / 100)
     slot = managed * (1 - pot_pct / 100) / max_positions
@@ -169,14 +183,15 @@ def hypothetical_value(records: list[SignalRecord], marks: dict[str, dict | None
                 for p in positions if p.sek_return_pct is not None)
     missing = sum(1 for p in positions if p.status != "pending" and p.sek_return_pct is None)
     if index_pct:
-        if index_sek_pct is None:
+        if fund_sek_pct is None:
             missing += 1
         else:
-            delta += base_sek * index_pct / 100 * index_sek_pct / 100
+            delta += base_sek * index_pct / 100 * fund_sek_pct / 100
     total = base_sek + delta
     return HypotheticalResult(base_sek, max_positions, round(total, 2), round(delta, 2),
                               round(delta / base_sek * 100, 2) if base_sek else 0.0, positions, missing, pot_pct,
-                              index_pct, None if index_sek_pct is None else round(index_sek_pct, 3))
+                              index_pct, None if index_sek_pct is None else round(index_sek_pct, 3),
+                              fund_symbol, None if fund_sek_pct is None else round(fund_sek_pct, 3))
 
 
 def _fmt_kr(value: float) -> str:
@@ -202,10 +217,12 @@ def format_hypothetical_message(result: HypotheticalResult, since: str) -> str:
     pot = [p for p in result.positions if p.kind == "lekpott" and p.status in ("open", "closed")]
     index_sek = result.base_sek * result.index_pct / 100
     if result.index_pct:
-        move = "kurs saknas" if result.index_sek_pct is None else f"{result.index_sek_pct:+.1f}%"
-        lines.append(f"S&P 500-fond {_fmt_kr(index_sek)} kr: {move}")
+        move = "kurs saknas" if result.fund_sek_pct is None else f"{result.fund_sek_pct:+.1f}%"
+        lines.append(f"{fund_name(result.fund_symbol)} {_fmt_kr(index_sek)} kr: {move}")
     managed = result.base_sek - index_sek
-    if result.pot_pct or result.index_pct:
+    if managed <= 0:
+        pass
+    elif result.pot_pct or result.index_pct:
         rot_sek = managed * (1 - result.pot_pct / 100)
         lines.append(f"Rotation {_fmt_kr(rot_sek)} kr: " + (_position_parts(rotation) or "inga innehav ännu"))
         if result.pot_pct:

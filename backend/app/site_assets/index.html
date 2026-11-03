@@ -147,7 +147,7 @@ details[open] summary::after { content: "Dölj"; }
     </div>
     <div class="pl">
       <div class="box"><span class="label">Vinst/förlust i sålda affärer</span><span class="v" id="realized">–</span><span class="sub" id="realizedSub"></span></div>
-      <div class="box"><span class="label">Vinst/förlust i aktier du äger</span><span class="v" id="unrealized">–</span><span class="sub" id="unrealizedSub"></span></div>
+      <div class="box"><span class="label">Vinst/förlust i det du äger</span><span class="v" id="unrealized">–</span><span class="sub" id="unrealizedSub"></span></div>
     </div>
     <div class="split">
       <div class="splitbar" id="splitbar"></div>
@@ -303,6 +303,15 @@ function ledger(s) {
     return { ...p, t, fromStart, gain, buyDate: fromStart ? s.since : t.buy_date };
   });
   const inDepot = new Set(pos.map(p => p.id));
+  // The fund part (S&P 500 or Nasdaq 100) is a holding bought at the start, like any other.
+  const fundStake = s.base_sek * (s.index_pct || 0) / 100;
+  if (fundStake > 0) {
+    const fp = s.fund_sek_pct !== undefined ? s.fund_sek_pct : s.index_sek_pct;
+    const value = fp == null ? null : fundStake * (1 + fp / 100);
+    pos.unshift({ id: "fund", symbol: s.fund_name || "S&P 500-fond", kind: "fund", status: "open", invested_sek: fundStake,
+                  value_sek: value, gain: value == null ? null : value - fundStake, sek_return_pct: fp,
+                  t: {}, fromStart: true, buyDate: s.since, sell_signaled: false });
+  }
   return {
     pos,
     open: pos.filter(p => p.status === "open"),
@@ -312,7 +321,7 @@ function ledger(s) {
   };
 }
 const sum = xs => xs.reduce((a, x) => a + (x ?? 0), 0);
-const KIND_TAG = p => p.kind === "lekpott" ? ' <span class="tag">Raket</span>' : "";
+const KIND_TAG = p => p.kind === "lekpott" ? ' <span class="tag">Raket</span>' : p.kind === "fund" ? ' <span class="tag">Fond</span>' : "";
 
 function ev(kind, label, what, sub, amt, amtSub = "", amtTone = "") {
   return `<div class="ev"><div class="dot ${kind}" aria-hidden="true">${label}</div>` +
@@ -332,8 +341,9 @@ function renderFeed(s, L) {
   for (const p of L.pos.filter(p => p.status !== "pending" && !p.fromStart)) items.push({ date: p.buyDate || "", html: ev("buy", "KÖPT",
     `Köpte ${esc(p.symbol)}`, `${day(p.buyDate)} · ${usd(p.entry_price)} per aktie`, esc(kr(p.invested_sek))) });
   const started = L.pos.filter(p => p.fromStart);
-  if (started.length) items.push({ date: s.since, html: ev("wait", "START", `Start med ${started.length} aktier`,
-    `${day(s.since)} · ${esc(started.map(p => p.symbol).join(", "))}`, esc(kr(sum(started.map(p => p.invested_sek))))) });
+  if (started.length) items.push({ date: s.since, html: ev("wait", "START", started.length === 1 ? `Köpte ${esc(started[0].symbol)}` : `Start med ${started.length} innehav`,
+    started.length === 1 ? `${day(s.since)} · hela insatsen` : `${day(s.since)} · ${esc(started.map(p => p.symbol).join(", "))}`,
+    esc(kr(sum(started.map(p => p.invested_sek))))) });
   items.sort((a, b) => b.date.localeCompare(a.date));
   $("feed").innerHTML = items.slice(0, 8).map(i => i.html).join("") || '<div class="empty">Inga händelser ännu.</div>';
   $("feedNote").textContent = L.pending.length || L.open.some(p => p.sell_signaled) ? "Order väntar" : "Inga order just nu";
@@ -347,21 +357,14 @@ function renderPL(L) {
   $("realizedSub").textContent = L.closed.length ? `${L.closed.length} sålda · ${pct(r / rIn * 100)}` : "Inget sålt sedan start";
   $("unrealized").textContent = skr(u);
   $("unrealized").className = "v " + tone(u);
-  $("unrealizedSub").textContent = L.open.length ? `${L.open.length} aktier · ${pct(uIn ? u / uIn * 100 : 0)}` : "Inga aktier just nu";
+  $("unrealizedSub").textContent = L.open.length ? `${L.open.length} innehav · ${pct(uIn ? u / uIn * 100 : 0)}` : "Inga innehav just nu";
 }
 
 function renderHoldings(s, L) {
   const out = [];
-  const indexStake = s.base_sek * (s.index_pct || 0) / 100;
-  if (indexStake) {
-    const v = s.index_sek_pct == null ? null : indexStake * (1 + s.index_sek_pct / 100);
-    out.push(row("S&P 500-fond", `Köpt för ${kr(indexStake)} · ${Math.round(s.index_pct)} % av depån`,
-                 esc(kr(v ?? indexStake)), `${skr(v == null ? null : v - indexStake)} · ${pct(s.index_sek_pct)}`, tone(s.index_sek_pct),
-                 ' <span class="tag">Fond</span>'));
-  }
   for (const p of [...L.open].sort((a, b) => (b.gain ?? 0) - (a.gain ?? 0))) {
     const tags = KIND_TAG(p) + (p.sell_signaled ? ' <span class="tag sell">Säljs vid öppning</span>' : "");
-    out.push(row(esc(p.symbol), `Köpt för ${kr(p.invested_sek)} · ${usd(p.entry_price)} → ${usd(p.last_price)}`,
+    out.push(row(esc(p.symbol), p.kind === "fund" ? `Köpt för ${kr(p.invested_sek)} · ${day(p.buyDate)}` : `Köpt för ${kr(p.invested_sek)} · ${usd(p.entry_price)} → ${usd(p.last_price)}`,
                  esc(kr(p.value_sek)), `${skr(p.gain)} · ${pct(p.sek_return_pct)}`, tone(p.gain), tags));
   }
   for (const p of L.pending) out.push(row(esc(p.symbol), `Köps vid nästa öppning · senast ${usd(p.last_price)}`,
@@ -388,15 +391,15 @@ function renderTrades(s, L) {
   const evs = [];
   for (const p of L.pos) {
     if (p.status !== "pending") evs.push({ date: p.buyDate || "", html: row(`<span class="tag buy">Köp</span> ${esc(p.symbol)}`,
-      p.fromStart ? `${day(p.buyDate)} · fanns med vid start` : `${day(p.buyDate)} · vid öppning, ${usd(p.entry_price)}`,
-      esc(kr(p.invested_sek)), p.fromStart ? `kurs ${usd(p.entry_price)}` : "köpbelopp") });
+      p.kind === "fund" ? `${day(p.buyDate)} · köpt vid start` : p.fromStart ? `${day(p.buyDate)} · fanns med vid start` : `${day(p.buyDate)} · vid öppning, ${usd(p.entry_price)}`,
+      esc(kr(p.invested_sek)), p.fromStart && p.entry_price != null ? `kurs ${usd(p.entry_price)}` : "köpbelopp") });
     if (p.status === "closed") evs.push({ date: p.t.sell_date || "", html: row(`<span class="tag sell">Sälj</span> ${esc(p.symbol)}`,
       `${day(p.t.sell_date)} · ${esc(p.t.sell_reason || "säljsignal")}`, esc(kr(p.value_sek)), `${skr(p.gain)} · ${pct(p.sek_return_pct)}`, tone(p.gain)) });
   }
   evs.sort((a, b) => b.date.localeCompare(a.date));
   out.push('<div class="section-head">Alla köp och sälj sedan start</div>', ...evs.map(e => e.html));
   if (L.older.length) {
-    out.push(`<div class="section-head">Före start ${day(s.since)} (ingår inte i depån)</div>`);
+    out.push('<div class="section-head">Aktiebotens papperssignaler (ingår inte i din depå)</div>');
     for (const t of L.older) out.push(row(esc(t.symbol), `${day(t.buy_date)} → ${t.sell_date ? day(t.sell_date) : "ägs"} · ${usd(t.buy_price)} → ${usd(t.sell_price ?? t.last_price)}`,
       pct(t.return_pct ?? t.unrealized_pct), "i dollar", tone(t.return_pct ?? t.unrealized_pct)));
   }
@@ -429,10 +432,10 @@ function render(s) {
   since.className = "v " + tone(s.delta_sek);
   $("invested").textContent = kr(s.base_sek);
   const indexPct = s.index_pct || 0, botPct = 100 - indexPct;
-  $("splitbar").innerHTML = (indexPct ? `<span style="width:${indexPct}%;background:var(--muted)"></span>` : "") +
+  $("splitbar").innerHTML = (indexPct ? `<span style="width:${indexPct}%;background:var(--accent)"></span>` : "") +
                             `<span style="width:${botPct}%;background:var(--accent)"></span>`;
-  $("splitlegend").innerHTML = (indexPct ? `<span><i style="background:var(--muted)"></i>S&amp;P 500-fond ${Math.round(indexPct)} %</span>` : "") +
-                               `<span><i style="background:var(--accent)"></i>Aktier via boten ${Math.round(botPct)} %</span>`;
+  $("splitlegend").innerHTML = (indexPct ? `<span><i style="background:var(--muted)"></i>${esc(s.fund_name || "S&P 500-fond")} ${Math.round(indexPct)} %</span>` : "") +
+                               (botPct > 0 ? `<span><i style="background:var(--accent)"></i>Aktier via boten ${Math.round(botPct)} %</span>` : "");
   const L = ledger(s);
   renderFeed(s, L); renderPL(L); renderHoldings(s, L); renderTrades(s, L); renderOrders(s, L);
   lastHistory = Array.isArray(s.history) ? s.history : [];

@@ -62,3 +62,13 @@ def test_build_site_writes_the_page_and_history(tmp_path):
     assert status["spy_all_sek"] == pytest.approx(10100.0) and len(status["history"]) == 2
     assert status["report_md"].startswith("# Rapport") and status["positions"][0]["symbol"] == "LLY"
     assert build_site(tmp_path / "missing", tmp_path / "x") is None
+
+
+def test_status_passes_the_fund_and_keeps_spy_as_comparison():
+    from app.dashboard import status_payload
+
+    h = {"base_sek": 10000.0, "total_sek": 10500.0, "delta_sek": 500.0, "delta_pct": 5.0, "since": "2026-11-02",
+         "index_pct": 100.0, "index_sek_pct": -1.0, "fund_symbol": "QQQ", "fund_sek_pct": 5.0, "positions": []}
+    s = status_payload(h, "", [], "2026-11-04 06:20 UTC")
+    assert s["fund_name"] == "Nasdaq 100-fond" and s["fund_sek_pct"] == 5.0
+    assert s["spy_all_sek"] == 9900.0 and s["rotation_stake_sek"] == 0.0 and s["rotation_value_sek"] == 0.0

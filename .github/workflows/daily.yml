@@ -71,9 +71,8 @@ jobs:
           ROTATION_REBALANCE: ${{ vars.ROTATION_REBALANCE }}
           ROTATION_MA50_EXIT: ${{ vars.ROTATION_MA50_EXIT }}
           ROTATION_MA50_AFTER_EXTENSION: ${{ vars.ROTATION_MA50_AFTER_EXTENSION }}
-          # The owner chose (2026-11-03): the bot manages 100 % of the (paper)
-          # portfolio, no S&P 500 fund part. Higher risk: no tested variant has
-          # beaten the index risk-adjusted, and the report keeps saying so.
+          # The rotation's own paper portfolio: 100 % (signals only since
+          # 2026-11-03 — the owner's kronor depot holds Nasdaq 100 instead).
           BOT_SHARE_PCT: ${{ vars.BOT_SHARE_PCT || '100' }}
           ROCKETS_MODE: ${{ vars.ROCKETS_MODE }}
           # Lekpott off (owner's choice 2026-11-01): earnings rockets are
@@ -94,11 +93,15 @@ jobs:
           DB_PATH: ${{ github.workspace }}/state/tradingbot.db
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           HYPOTHETICAL_BASE_SEK: ${{ vars.HYPOTHETICAL_BASE_SEK }}
-          # Restarted with a fresh 10 000 kr at the 2026-11-02 close for the new
-          # split (100 % rotation, no index part, no lekpott). The previous run
-          # (25 % bot / 75 % index from 2026-10-30) ended at 9 862 kr (-1.4 %);
-          # earlier results are not counted.
+          # 10 000 kr from the 2026-11-02 close. Owner's choice 2026-11-03: the
+          # depot is 100 % Nasdaq 100 (QQQ) — the highest return and the winner
+          # under the pre-registered rule in the bot-candidate backtest
+          # (app/bot_research.py, 2008-2026). The stock rotation keeps sending
+          # its paper signals but no longer drives the depot. S&P 500 stays
+          # the comparison. (Before: 25/75 from 10-30 ended at 9 862 kr.)
           HYPOTHETICAL_SINCE: ${{ vars.HYPOTHETICAL_SINCE || '2026-11-02T21:00:00+00:00' }}
+          HYPOTHETICAL_FUND: ${{ vars.HYPOTHETICAL_FUND || 'QQQ' }}
+          HYPOTHETICAL_FUND_PCT: ${{ vars.HYPOTHETICAL_FUND_PCT || '100' }}
           BOT_SHARE_PCT: ${{ vars.BOT_SHARE_PCT || '100' }}
           ROCKET_POT_PCT: ${{ vars.ROCKET_POT_PCT || '0' }}
           # The owner's kronor message (buys, sells, depot value) — once per new trading day.

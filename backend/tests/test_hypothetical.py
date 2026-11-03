@@ -216,3 +216,16 @@ def test_depot_notice_lists_orders_and_new_sales_in_kronor():
     assert "Depå: 10 094 kr" in text and "+94 kr (+0,9 %)" in text and "10 050 kr" in text
     quiet = depot_notice({**payload, "positions": []}, "2026-11-06", "2026-11-05")
     assert "Inga köp eller sälj idag." in quiet
+
+
+def test_fund_part_can_hold_another_index_while_spy_stays_the_comparison():
+    from app.hypothetical import format_hypothetical_message, hypothetical_value
+
+    res = hypothetical_value([], {}, None, base_sek=10000.0, index_pct=100.0, index_sek_pct=-1.0,
+                             fund_symbol="QQQ", fund_sek_pct=5.0)
+    assert res.total_sek == 10500.0 and res.fund_symbol == "QQQ" and res.index_sek_pct == -1.0
+    text = format_hypothetical_message(res, "2026-11-02")
+    assert "Nasdaq 100-fond 10 000 kr: +5.0%" in text and "Rotation" not in text
+    assert "hela 10 000 kr i S&P 500 hade varit 9 900 kr" in text
+    # Unknown fund price: the part is reported missing, not guessed.
+    assert hypothetical_value([], {}, None, index_pct=100.0, index_sek_pct=1.0, fund_symbol="QQQ").fx_missing == 1

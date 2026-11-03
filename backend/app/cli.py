@@ -100,8 +100,10 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
     open_records = [r for r in records if r.result == "OPEN"]
     open_pot = [r for r in pot_records if r.result == "OPEN"]
     open_rockets = [r for r in rocket_taken if r.result == "OPEN"]
+    fund_symbol = (os.environ.get("HYPOTHETICAL_FUND") or "SPY").upper()
     with StockClient() as client:
-        client.prefetch(sorted({r.symbol for r in records + pot_records + open_rockets}) + [FX_SYMBOL], "1d", limit=400)
+        client.prefetch(sorted({r.symbol for r in records + pot_records + open_rockets} | {"SPY", fund_symbol}) + [FX_SYMBOL],
+                        "1d", limit=400)
         rocket_marks = {r.id: current_mark(client, r) for r in open_rockets}
         marks = {r.symbol: current_mark(client, r) for r in open_records}
         pot_marks = {r.id: current_mark(client, r) for r in open_pot}
@@ -128,24 +130,37 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
             spy = client.get_klines("SPY", "1d", limit=400)
         except DataUnavailable:
             spy = None
+        try:
+            fund = spy if fund_symbol == "SPY" else client.get_klines(fund_symbol, "1d", limit=400)
+        except DataUnavailable:
+            fund = None
 
     # The index-fund part: SPY in kronor from the start close to the latest close.
     start_ts = since_ts or to_utc((records or pot_records)[0].timestamp)
-    index_sek_pct = None
-    if spy is not None and not spy.empty and fx is not None:
+    def sek_move(bars) -> float | None:
+        """A fund's move in kronor from the start close to its latest close."""
+        if bars is None or bars.empty or fx is None:
+            return None
         from app.hypothetical import fx_rate_on
 
-        before = spy[spy["close_time"] <= start_ts]
-        fx0, fx1 = fx_rate_on(fx, start_ts), fx_rate_on(fx, spy["close_time"].iloc[-1])
-        if not before.empty and fx0 and fx1:
-            index_sek_pct = ((float(spy["close"].iloc[-1]) / float(before["close"].iloc[-1])) * (fx1 / fx0) - 1) * 100
+        before = bars[bars["close_time"] <= start_ts]
+        fx0, fx1 = fx_rate_on(fx, start_ts), fx_rate_on(fx, bars["close_time"].iloc[-1])
+        if before.empty or not fx0 or not fx1:
+            return None
+        return ((float(bars["close"].iloc[-1]) / float(before["close"].iloc[-1])) * (fx1 / fx0) - 1) * 100
+
+    index_sek_pct = sek_move(spy)
+    fund_sek_pct = sek_move(fund)
+    fund_pct_env = os.environ.get("HYPOTHETICAL_FUND_PCT", "").strip()
 
     params = active_rotation_params()
     managed = bot_capital() + rocket_pot_capital()
     pot_pct = rocket_pot_capital() / managed * 100 if managed > 0 else 0.0
     result = hypothetical_value(records, marks, fx, base_sek=args.base_sek, max_positions=params.max_positions,
                                 since=since_ts, base_closes=base_closes, pot_records=pot_records, pot_marks=pot_marks,
-                                pot_pct=pot_pct, index_pct=100.0 - _bot_share_pct(), index_sek_pct=index_sek_pct)
+                                pot_pct=pot_pct,
+                                index_pct=min(max(float(fund_pct_env), 0.0), 100.0) if fund_pct_env else 100.0 - _bot_share_pct(),
+                                index_sek_pct=index_sek_pct, fund_symbol=fund_symbol, fund_sek_pct=fund_sek_pct)
     since = args.since[:10] if args.since else (records or pot_records)[0].timestamp[:10]
     message = format_hypothetical_message(result, since)
     rocket_sek = None
@@ -166,6 +181,7 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
             "delta_pct": result.delta_pct, "since": since, "fx_missing": result.fx_missing, "message": message,
             "rocket_paper_sek": rocket_sek,
             "pot_pct": round(pot_pct, 2), "index_pct": result.index_pct, "index_sek_pct": result.index_sek_pct,
+            "fund_symbol": result.fund_symbol, "fund_sek_pct": result.fund_sek_pct,
             "positions": [
                 {"symbol": p.symbol, "kind": p.kind, "status": p.status, "usd_return_pct": p.usd_return_pct,
                  "sek_return_pct": p.sek_return_pct, "id": p.record_id, "entry_price": p.entry_price,

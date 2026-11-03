@@ -127,6 +127,9 @@ delen av fördelen.
 - **Portföljstorlek och fördelning** sätts som repo-variabler (Settings → Secrets and variables → Actions → Variables):
   - `PORTFOLIO_SIZE_USD` är hela portföljen (standard 10 000).
   - `BOT_SHARE_PCT` är den andel boten förvaltar (100 i `daily.yml` sedan 2026-11-03, ägarens val; 25 under 2026-11-01–02).
+  - `HYPOTHETICAL_FUND` / `HYPOTHETICAL_FUND_PCT`: vad den hypotetiska kronkassan äger. Sedan 2026-11-03 är det
+    100 % Nasdaq 100 (`QQQ`), vinnaren i testet av bot-kandidater (`app/bot_research.py`, körs med
+    workflowet *Bot candidates research*). Aktieboten skickar fortfarande sina papperssignaler men styr inte kassan.
 
   Resten är tänkt att ligga i en S&P 500-fond som boten aldrig rör, och varje köp blir 1/8 av botens del.
 
