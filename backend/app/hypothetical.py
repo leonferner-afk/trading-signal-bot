@@ -270,3 +270,39 @@ def trade_rows(records: list[SignalRecord], kind: str, bars: dict[str, pd.DataFr
                          "sell_date": str(r.closed_at)[:10] if r.closed_at else None, "sell_price": r.exit_price,
                          "return_pct": None if r.return_pct is None else round(r.return_pct, 2)})
     return rows
+
+
+def _kr_signed(value: float) -> str:
+    return ("+" if value >= 0 else "−") + _fmt_kr(abs(value)) + " kr"
+
+
+def _pct_sv(value: float | None) -> str:
+    return "–" if value is None else (f"{value:+.1f} %").replace("-", "−").replace(".", ",")
+
+
+def depot_notice(payload: dict, session: str, previous_session: str | None) -> str:
+    """The owner's Telegram message for one trading day, in kronor, from the
+    tracker payload (cmd_hypothetical's JSON): orders for the next open, sales
+    filled since the previous notice, and the depot's value. Paper only."""
+    trades = {t["id"]: t for t in payload.get("trades", [])}
+    positions = [p for p in payload.get("positions", []) if (p.get("invested_sek") or 0) > 0]
+    lines = [f"📱 Min depå (papper) — handelsdag {session}"]
+    events = []
+    for p in positions:
+        t = trades.get(p.get("id"), {})
+        gain = None if p.get("value_sek") is None else p["value_sek"] - p["invested_sek"]
+        if p["status"] == "pending":
+            events.append(f"🟢 KÖP {p['symbol']} vid nästa öppning · {_fmt_kr(p['invested_sek'])} kr")
+        elif p["status"] == "open" and p.get("sell_signaled"):
+            now = "" if gain is None else f" · nu {_fmt_kr(p['value_sek'])} kr ({_kr_signed(gain)}, {_pct_sv(p.get('sek_return_pct'))})"
+            events.append(f"🔴 SÄLJ {p['symbol']} vid nästa öppning{now}" + (f" — {t['sell_reason']}" if t.get("sell_reason") else ""))
+        elif (p["status"] == "closed" and gain is not None and t.get("sell_date")
+              and (previous_session is None or t["sell_date"] > previous_session)):
+            events.append(f"✅ Sålt {p['symbol']}: {_kr_signed(gain)} ({_pct_sv(p.get('sek_return_pct'))})")
+    lines += events or ["Inga köp eller sälj idag."]
+    lines.append(f"Depå: {_fmt_kr(payload['total_sek'])} kr · sedan start {payload.get('since', '')}: "
+                 f"{_kr_signed(payload['delta_sek'])} ({_pct_sv(payload.get('delta_pct'))})")
+    if payload.get("index_sek_pct") is not None:
+        lines.append(f"Allt i S&P 500 hade varit {_fmt_kr(payload['base_sek'] * (1 + payload['index_sek_pct'] / 100))} kr.")
+    lines.append("Papper — inga riktiga pengar. Ingen vinst är lovad.")
+    return "\n".join(lines)

@@ -98,6 +98,20 @@ details[open] summary::after { content: "Dölj"; }
 .report th, .report td { padding: 6px 9px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
 .note { color: var(--muted); font-size: .82rem; max-width: 72ch; }
 .loading .card { opacity: .55; }
+.feed { display: grid; }
+.ev { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); }
+.ev:first-of-type { border-top: 0; }
+.dot { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: .8rem; }
+.dot.buy { background: color-mix(in srgb, var(--buy) 15%, transparent); color: var(--buy); }
+.dot.sell { background: color-mix(in srgb, var(--sell) 15%, transparent); color: var(--sell); }
+.dot.wait { background: var(--soft); color: var(--muted); }
+.ev .what { font-weight: 600; }
+.ev .amt { text-align: right; font-weight: 600; white-space: nowrap; }
+.ev .amt small { display: block; font-weight: 500; font-size: .82rem; }
+.cardhead { padding: 14px 16px 6px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.pl { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pl .box { background: var(--soft); border-radius: 12px; padding: 10px 12px; display: grid; gap: 2px; }
+.pl .box .v { font-size: 1.05rem; font-weight: 600; }
 .hint { background: var(--soft); border-radius: 12px; padding: 10px 14px; font-size: .88rem; color: var(--muted); display: flex; gap: 10px; justify-content: space-between; align-items: center; }
 .hint button { font: inherit; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 4px; cursor: pointer; }
 .refresh { font: inherit; font-size: .88rem; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 4px 0; cursor: pointer; }
@@ -116,6 +130,11 @@ details[open] summary::after { content: "Dölj"; }
     <button type="button" id="hintClose" aria-label="Stäng tipset">OK</button>
   </div>
 
+  <section class="card" aria-label="Senaste händelser">
+    <div class="cardhead"><h2>Senaste händelser</h2><span class="muted" id="feedNote"></span></div>
+    <div class="feed" id="feed"><div class="empty">Händelser visas här när datan har laddats.</div></div>
+  </section>
+
   <section class="card account" aria-label="Depåöversikt">
     <div>
       <div class="label" id="valueLabel">Depåvärde</div>
@@ -125,6 +144,10 @@ details[open] summary::after { content: "Dölj"; }
       <div class="stat"><span class="label" id="todayLabel">Idag</span><span class="v" id="today">–</span></div>
       <div class="stat"><span class="label" id="sinceLabel">Sedan start</span><span class="v" id="since">–</span></div>
       <div class="stat"><span class="label">Insatt</span><span class="v" id="invested">–</span></div>
+    </div>
+    <div class="pl">
+      <div class="box"><span class="label">Vinst/förlust i sålda affärer</span><span class="v" id="realized">–</span><span class="sub" id="realizedSub"></span></div>
+      <div class="box"><span class="label">Vinst/förlust i aktier du äger</span><span class="v" id="unrealized">–</span><span class="sub" id="unrealizedSub"></span></div>
     </div>
     <div class="split">
       <div class="splitbar" id="splitbar"></div>
@@ -269,37 +292,80 @@ function row(left, sub, rightMain, rightSub, rightTone = "", tags = "") {
          `<div class="right"><span class="main">${rightMain}</span><span class="sub ${rightTone}">${rightSub}</span></div></div>`;
 }
 
-function renderHoldings(s) {
+// The depå (since the tracker's start) is the positions list; the trade list adds dates and reasons.
+// A position held when the tracker restarted counts as bought at the start, at that day's close.
+function ledger(s) {
+  const tradeById = new Map((s.trades || []).map(t => [t.id, t]));
+  const pos = (s.positions || []).filter(p => (p.invested_sek ?? 1) > 0).map(p => {
+    const t = tradeById.get(p.id) || {};
+    const fromStart = !!t.buy_date && !!s.since && t.buy_date < s.since;
+    const gain = p.value_sek != null && p.invested_sek != null ? p.value_sek - p.invested_sek : null;
+    return { ...p, t, fromStart, gain, buyDate: fromStart ? s.since : t.buy_date };
+  });
+  const inDepot = new Set(pos.map(p => p.id));
+  return {
+    pos,
+    open: pos.filter(p => p.status === "open"),
+    pending: pos.filter(p => p.status === "pending"),
+    closed: pos.filter(p => p.status === "closed"),
+    older: (s.trades || []).filter(t => !inDepot.has(t.id) && t.kind !== "lekpott"),
+  };
+}
+const sum = xs => xs.reduce((a, x) => a + (x ?? 0), 0);
+const KIND_TAG = p => p.kind === "lekpott" ? ' <span class="tag">Raket</span>' : "";
+
+function ev(kind, label, what, sub, amt, amtSub = "", amtTone = "") {
+  return `<div class="ev"><div class="dot ${kind}" aria-hidden="true">${label}</div>` +
+         `<div><div class="what">${what}</div><div class="sub">${sub}</div></div>` +
+         `<div class="amt">${amt}${amtSub ? `<small class="${amtTone}">${amtSub}</small>` : ""}</div></div>`;
+}
+
+function renderFeed(s, L) {
+  const items = [];
+  for (const p of L.pending) items.push({ date: "9999", html: ev("buy", "KÖP", `Köper ${esc(p.symbol)} vid nästa öppning`,
+    `Signal ${day(p.t.signal_date)} · köps för`, esc(kr(p.invested_sek))) });
+  for (const p of L.open.filter(p => p.sell_signaled)) items.push({ date: "9999", html: ev("sell", "SÄLJ",
+    `Säljer ${esc(p.symbol)} vid nästa öppning`, esc(p.t.sell_reason || "säljsignal"), esc(kr(p.value_sek)),
+    `${skr(p.gain)} · ${pct(p.sek_return_pct)}`, tone(p.gain)) });
+  for (const p of L.closed) items.push({ date: p.t.sell_date || "", html: ev("sell", "SÅLT", `Sålde ${esc(p.symbol)}`,
+    `${day(p.t.sell_date)} · ${esc(p.t.sell_reason || "säljsignal")}`, esc(skr(p.gain)), pct(p.sek_return_pct), tone(p.gain)) });
+  for (const p of L.pos.filter(p => p.status !== "pending" && !p.fromStart)) items.push({ date: p.buyDate || "", html: ev("buy", "KÖPT",
+    `Köpte ${esc(p.symbol)}`, `${day(p.buyDate)} · ${usd(p.entry_price)} per aktie`, esc(kr(p.invested_sek))) });
+  const started = L.pos.filter(p => p.fromStart);
+  if (started.length) items.push({ date: s.since, html: ev("wait", "START", `Start med ${started.length} aktier`,
+    `${day(s.since)} · ${esc(started.map(p => p.symbol).join(", "))}`, esc(kr(sum(started.map(p => p.invested_sek))))) });
+  items.sort((a, b) => b.date.localeCompare(a.date));
+  $("feed").innerHTML = items.slice(0, 8).map(i => i.html).join("") || '<div class="empty">Inga händelser ännu.</div>';
+  $("feedNote").textContent = L.pending.length || L.open.some(p => p.sell_signaled) ? "Order väntar" : "Inga order just nu";
+}
+
+function renderPL(L) {
+  const r = sum(L.closed.map(p => p.gain)), u = sum(L.open.map(p => p.gain));
+  const rIn = sum(L.closed.map(p => p.invested_sek)), uIn = sum(L.open.map(p => p.invested_sek));
+  $("realized").textContent = L.closed.length ? skr(r) : "0 kr";
+  $("realized").className = "v " + tone(r);
+  $("realizedSub").textContent = L.closed.length ? `${L.closed.length} sålda · ${pct(r / rIn * 100)}` : "Inget sålt sedan start";
+  $("unrealized").textContent = skr(u);
+  $("unrealized").className = "v " + tone(u);
+  $("unrealizedSub").textContent = L.open.length ? `${L.open.length} aktier · ${pct(uIn ? u / uIn * 100 : 0)}` : "Inga aktier just nu";
+}
+
+function renderHoldings(s, L) {
   const out = [];
   const indexStake = s.base_sek * (s.index_pct || 0) / 100;
   if (indexStake) {
     const v = s.index_sek_pct == null ? null : indexStake * (1 + s.index_sek_pct / 100);
-    out.push(row("S&P 500-fond", `Insatt ${kr(indexStake)} · ${Math.round(s.index_pct)} % av depån`,
+    out.push(row("S&P 500-fond", `Köpt för ${kr(indexStake)} · ${Math.round(s.index_pct)} % av depån`,
                  esc(kr(v ?? indexStake)), `${skr(v == null ? null : v - indexStake)} · ${pct(s.index_sek_pct)}`, tone(s.index_sek_pct),
                  ' <span class="tag">Fond</span>'));
   }
-  const pos = (s.positions || []).filter(p => (p.invested_sek ?? 1) > 0);
-  const open = pos.filter(p => p.status !== "closed");
-  const closed = pos.filter(p => p.status === "closed");
-  for (const p of open) {
-    const pending = p.status === "pending";
-    const gain = p.value_sek != null && p.invested_sek != null ? p.value_sek - p.invested_sek : null;
-    const tags = (p.kind === "lekpott" ? ' <span class="tag">Raket</span>' : "") +
-                 (pending ? ' <span class="tag buy">Köps vid öppning</span>' : "") +
-                 (p.sell_signaled ? ' <span class="tag sell">Säljs vid öppning</span>' : "");
-    const sub = pending ? `Insatt ${kr(p.invested_sek)} · senast ${usd(p.last_price)}`
-                        : `GAV ${usd(p.entry_price)} · senast ${usd(p.last_price)}`;
-    out.push(row(esc(p.symbol), sub, esc(kr(pending ? p.invested_sek : p.value_sek)),
-                 pending ? "väntar på köp" : `${skr(gain)} · ${pct(p.sek_return_pct)}`, tone(p.sek_return_pct), tags));
+  for (const p of [...L.open].sort((a, b) => (b.gain ?? 0) - (a.gain ?? 0))) {
+    const tags = KIND_TAG(p) + (p.sell_signaled ? ' <span class="tag sell">Säljs vid öppning</span>' : "");
+    out.push(row(esc(p.symbol), `Köpt för ${kr(p.invested_sek)} · ${usd(p.entry_price)} → ${usd(p.last_price)}`,
+                 esc(kr(p.value_sek)), `${skr(p.gain)} · ${pct(p.sek_return_pct)}`, tone(p.gain), tags));
   }
-  if (closed.length) {
-    out.push('<div class="section-head">Sålda sedan start</div>');
-    for (const p of closed) {
-      const gain = p.value_sek != null && p.invested_sek != null ? p.value_sek - p.invested_sek : null;
-      out.push(row(esc(p.symbol), `Köpt ${usd(p.entry_price)} · såld ${usd(p.last_price)}`, esc(skr(gain)), pct(p.sek_return_pct),
-                   tone(p.sek_return_pct), ' <span class="tag">Såld</span>'));
-    }
-  }
+  for (const p of L.pending) out.push(row(esc(p.symbol), `Köps vid nästa öppning · senast ${usd(p.last_price)}`,
+                                          esc(kr(p.invested_sek)), "väntar på köp", "", ' <span class="tag buy">Köps</span>' + KIND_TAG(p)));
   if (s.rocket_paper_sek != null) {
     const g = s.rocket_paper_sek - s.base_sek;
     out.push('<div class="section-head">Raketportfölj (separat, på kul)</div>');
@@ -309,34 +375,40 @@ function renderHoldings(s) {
   $("holdings").innerHTML = out.join("") || '<div class="empty">Inga innehav ännu.</div>';
 }
 
-function renderTrades(s) {
-  const events = [];
-  for (const t of s.trades || []) {
-    const tag = t.kind === "lekpott" ? ' <span class="tag">Raket</span>' : "";
-    if (t.buy_date) events.push({ date: t.buy_date, order: 0, html: row(
-      `<span class="tag buy">Köp</span> ${esc(t.symbol)}`, `${day(t.buy_date)} · vid öppning`, esc(usd(t.buy_price)), "kurs", "", tag) });
-    if (t.sell_date) events.push({ date: t.sell_date, order: 1, html: row(
-      `<span class="tag sell">Sälj</span> ${esc(t.symbol)}`, `${day(t.sell_date)} · ${esc(t.sell_reason || "säljsignal")}`,
-      esc(usd(t.sell_price)), `resultat ${pct(t.return_pct)}`, tone(t.return_pct), tag) });
+function renderTrades(s, L) {
+  const out = [];
+  if (L.closed.length) {
+    const wins = L.closed.filter(p => (p.gain ?? 0) > 0).length;
+    out.push(`<div class="section-head">Avslutade affärer · ${wins} av ${L.closed.length} med vinst</div>`);
+    for (const p of [...L.closed].sort((a, b) => (b.t.sell_date || "").localeCompare(a.t.sell_date || ""))) {
+      out.push(row(`${esc(p.symbol)}`, `${day(p.buyDate)} → ${day(p.t.sell_date)} · köpt för ${kr(p.invested_sek)}, såld för ${kr(p.value_sek)}`,
+                   esc(skr(p.gain)), pct(p.sek_return_pct), tone(p.gain), ' <span class="tag">Såld</span>' + KIND_TAG(p)));
+    }
   }
-  events.sort((a, b) => b.date.localeCompare(a.date) || b.order - a.order);
-  const closed = (s.trades || []).filter(t => t.status === "closed" && t.return_pct != null);
-  const wins = closed.filter(t => t.return_pct > 0).length;
-  const head = closed.length
-    ? `<div class="section-head">${closed.length} avslutade affärer · ${wins} med vinst · snitt ${pct(closed.reduce((a, t) => a + t.return_pct, 0) / closed.length)} (i dollar, efter avgift)</div>`
-    : "";
-  $("trades").innerHTML = head + (events.map(e => e.html).join("") || '<div class="empty">Inga transaktioner ännu.</div>');
+  const evs = [];
+  for (const p of L.pos) {
+    if (p.status !== "pending") evs.push({ date: p.buyDate || "", html: row(`<span class="tag buy">Köp</span> ${esc(p.symbol)}`,
+      p.fromStart ? `${day(p.buyDate)} · fanns med vid start` : `${day(p.buyDate)} · vid öppning, ${usd(p.entry_price)}`,
+      esc(kr(p.invested_sek)), p.fromStart ? `kurs ${usd(p.entry_price)}` : "köpbelopp") });
+    if (p.status === "closed") evs.push({ date: p.t.sell_date || "", html: row(`<span class="tag sell">Sälj</span> ${esc(p.symbol)}`,
+      `${day(p.t.sell_date)} · ${esc(p.t.sell_reason || "säljsignal")}`, esc(kr(p.value_sek)), `${skr(p.gain)} · ${pct(p.sek_return_pct)}`, tone(p.gain)) });
+  }
+  evs.sort((a, b) => b.date.localeCompare(a.date));
+  out.push('<div class="section-head">Alla köp och sälj sedan start</div>', ...evs.map(e => e.html));
+  if (L.older.length) {
+    out.push(`<div class="section-head">Före start ${day(s.since)} (ingår inte i depån)</div>`);
+    for (const t of L.older) out.push(row(esc(t.symbol), `${day(t.buy_date)} → ${t.sell_date ? day(t.sell_date) : "ägs"} · ${usd(t.buy_price)} → ${usd(t.sell_price ?? t.last_price)}`,
+      pct(t.return_pct ?? t.unrealized_pct), "i dollar", tone(t.return_pct ?? t.unrealized_pct)));
+  }
+  $("trades").innerHTML = evs.length || L.older.length ? out.join("") : '<div class="empty">Inga transaktioner ännu.</div>';
 }
 
-function renderOrders(s) {
+function renderOrders(s, L) {
   const out = [];
-  for (const t of s.trades || []) {
-    if (t.status === "pending") out.push(row(`<span class="tag buy">Köp</span> ${esc(t.symbol)}`,
-      `Signal ${day(t.signal_date)} · köps vid nästa öppning`, esc(usd(t.last_price)), "senaste kurs", "",
-      t.kind === "lekpott" ? ' <span class="tag">Raket</span>' : ""));
-    else if (t.status === "open" && t.sell_signal_date) out.push(row(`<span class="tag sell">Sälj</span> ${esc(t.symbol)}`,
-      `Signal ${day(t.sell_signal_date)} · ${esc(t.sell_reason || "säljs vid nästa öppning")}`, esc(usd(t.last_price)), "senaste kurs"));
-  }
+  for (const p of L.pending) out.push(row(`<span class="tag buy">Köp</span> ${esc(p.symbol)}`,
+    `Signal ${day(p.t.signal_date)} · köps vid nästa öppning`, esc(kr(p.invested_sek)), `senast ${usd(p.last_price)}`, "", KIND_TAG(p)));
+  for (const p of L.open.filter(p => p.sell_signaled)) out.push(row(`<span class="tag sell">Sälj</span> ${esc(p.symbol)}`,
+    `${esc(p.t.sell_reason || "säljs vid nästa öppning")}`, esc(kr(p.value_sek)), `${skr(p.gain)} · ${pct(p.sek_return_pct)}`, tone(p.gain)));
   $("orders").innerHTML = out.length ? out.join("") :
     '<div class="empty">Inga order just nu. Nya köp och sälj dyker upp här morgonen efter botens signal och genomförs vid nästa börsöppning.</div>';
 }
@@ -361,7 +433,8 @@ function render(s) {
                             `<span style="width:${botPct}%;background:var(--accent)"></span>`;
   $("splitlegend").innerHTML = (indexPct ? `<span><i style="background:var(--muted)"></i>S&amp;P 500-fond ${Math.round(indexPct)} %</span>` : "") +
                                `<span><i style="background:var(--accent)"></i>Aktier via boten ${Math.round(botPct)} %</span>`;
-  renderHoldings(s); renderTrades(s); renderOrders(s);
+  const L = ledger(s);
+  renderFeed(s, L); renderPL(L); renderHoldings(s, L); renderTrades(s, L); renderOrders(s, L);
   lastHistory = Array.isArray(s.history) ? s.history : [];
   drawChart();
   $("report").innerHTML = renderReport(s.report_md);

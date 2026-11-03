@@ -187,3 +187,32 @@ def test_positions_carry_prices_and_their_kronor_slot():
                                 base_sek=10000.0, max_positions=8, now=NOW, index_pct=75.0, index_sek_pct=0.0)
     p = result.positions[0]
     assert (p.entry_price, p.last_price, p.invested_sek, p.record_id, p.sell_signaled) == (100.0, 110.0, 312.5, 3, False)
+
+
+def test_depot_notice_lists_orders_and_new_sales_in_kronor():
+    from app.hypothetical import depot_notice
+
+    payload = {
+        "base_sek": 10000.0, "total_sek": 10093.75, "delta_sek": 93.75, "delta_pct": 0.94, "since": "2026-11-02",
+        "index_sek_pct": 0.5,
+        "positions": [
+            {"id": 1, "symbol": "AMD", "status": "closed", "invested_sek": 1250.0, "value_sek": 1307.5, "sek_return_pct": 4.6},
+            {"id": 3, "symbol": "INTC", "status": "closed", "invested_sek": 1250.0, "value_sek": 1000.0, "sek_return_pct": -20.0},
+            {"id": 14, "symbol": "PLTR", "status": "open", "invested_sek": 1250.0, "value_sek": 1210.0,
+             "sek_return_pct": -3.2, "sell_signaled": True},
+            {"id": 99, "symbol": "AMGN", "status": "pending", "invested_sek": 1307.5, "value_sek": None},
+            {"id": 15, "symbol": "TDOC", "status": "open", "invested_sek": 0.0, "value_sek": 0.0, "sell_signaled": True},
+        ],
+        "trades": [
+            {"id": 1, "sell_date": "2026-11-05"}, {"id": 3, "sell_date": "2026-11-03"},
+            {"id": 14, "sell_reason": "relativ styrka föll"}, {"id": 99}, {"id": 15},
+        ],
+    }
+    text = depot_notice(payload, "2026-11-05", "2026-11-04")
+    assert "🟢 KÖP AMGN vid nästa öppning · 1 308 kr" in text
+    assert "🔴 SÄLJ PLTR vid nästa öppning · nu 1 210 kr (−40 kr, −3,2 %) — relativ styrka föll" in text
+    assert "✅ Sålt AMD: +58 kr (+4,6 %)" in text
+    assert "INTC" not in text and "TDOC" not in text          # sold before the last notice; not in the depot
+    assert "Depå: 10 094 kr" in text and "+94 kr (+0,9 %)" in text and "10 050 kr" in text
+    quiet = depot_notice({**payload, "positions": []}, "2026-11-06", "2026-11-05")
+    assert "Inga köp eller sälj idag." in quiet

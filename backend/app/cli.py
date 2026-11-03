@@ -165,7 +165,28 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
         }
         with open(args.out, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, indent=2)
+        if args.notify_marker and spy is not None and not spy.empty:
+            _notify_depot(payload, spy["close_time"].iloc[-1].strftime("%Y-%m-%d"), args.notify_marker)
     return 0
+
+
+def _notify_depot(payload: dict, session: str, marker_path: str) -> None:
+    """Sends the kronor depot message to Telegram once per new trading day;
+    `marker_path` remembers the last day sent, so re-runs don't repeat it."""
+    from pathlib import Path
+
+    from app.hypothetical import depot_notice
+    from app.notify import telegram_client
+
+    marker = Path(marker_path)
+    previous = marker.read_text(encoding="utf-8").strip() if marker.exists() else None
+    if previous is not None and session <= previous:
+        print(f"Depot notice for {session} already handled.")
+        return
+    text = depot_notice(payload, session, previous)
+    print(text)
+    if telegram_client.send_message(text):
+        marker.write_text(session, encoding="utf-8")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -187,6 +208,7 @@ def main(argv: list[str] | None = None) -> int:
     hypothetical.add_argument("--base-sek", type=float, default=10000.0)
     hypothetical.add_argument("--since", default="", help="restart: a session close (ISO, UTC); empty = from the first trade")
     hypothetical.add_argument("--out", default="", help="optional path to write a JSON summary")
+    hypothetical.add_argument("--notify-marker", default="", help="send the kronor depot message to Telegram once per new trading day (file remembers the last)")
     hypothetical.set_defaults(func=cmd_hypothetical)
 
     dashboard = sub.add_parser("dashboard", help="rebuild the public status page from the bot-state files")
