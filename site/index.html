@@ -2,88 +2,409 @@
 <html lang="sv">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tradingbot — läget</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Min depå</title>
+<meta name="description" content="Tradingbotens papperstrading: innehav, köp, sälj och resultat i kronor.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Min depå">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f2f5f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0a100f" media="(prefers-color-scheme: dark)">
 <style>
-:root { --bg:#f6f7f9; --card:#ffffff; --text:#14171f; --muted:#5f6675; --line:#e3e6eb; --up:#0f7b3f; --down:#c0352b; --accent:#2f5bd3; }
-@media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --card:#181b22; --text:#e8eaef; --muted:#9aa1ad; --line:#2a2f39; --up:#3fbf72; --down:#ef6a5e; --accent:#7c9dff; } }
-* { box-sizing:border-box; }
-body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
-main { max-width:880px; margin:0 auto; padding:20px 16px 48px; }
-h1 { font-size:1.4rem; margin:0 0 4px; } h2 { font-size:1.1rem; margin:28px 0 10px; }
-.muted { color:var(--muted); font-size:.9rem; }
-.hero { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; margin-top:16px; }
-.big { font-size:2.2rem; font-weight:700; letter-spacing:-.02em; }
-.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; margin-top:12px; }
-.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
-.label { font-weight:600; } .sub { color:var(--muted); font-size:.85rem; } .value { font-size:1.25rem; font-weight:600; margin-top:4px; }
-.up { color:var(--up); } .down { color:var(--down); }
-.chartbox { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; }
-.chart { width:100%; max-width:640px; height:auto; display:block; margin:0 auto; } .chart .grid { stroke:var(--line); }
-.chart .axis { fill:var(--muted); font-size:14px; }
-.legend { display:flex; flex-wrap:wrap; gap:14px; font-size:.85rem; color:var(--muted); margin-top:6px; }
-.legend i { display:inline-block; width:12px; height:3px; margin-right:6px; vertical-align:middle; }
-table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; font-size:.95rem; }
-th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
-.report { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:4px 16px 12px; overflow-x:auto; }
-.report table { border:0; } .report blockquote { margin:8px 0; padding:6px 12px; border-left:3px solid var(--accent); color:var(--muted); }
-.note { margin-top:28px; color:var(--muted); font-size:.85rem; }
+/* Layout: a broker app on one column — account card (value, today, since start, split), then tabs for holdings,
+   transactions and orders, then the curve and the bot's own report. */
+:root {
+  --bg: #f2f5f4; --card: #ffffff; --fg: #0f1a17; --muted: #5a6964; --line: #e0e7e4; --soft: #eef3f1;
+  --accent: #0b6e5f; --up: #0d8549; --down: #c2392b; --buy: #0d8549; --sell: #c2392b;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a100f; --card: #121a18; --fg: #e5eeeb; --muted: #92a39d; --line: #22302c; --soft: #18221f;
+    --accent: #4cc3a9; --up: #45c37e; --down: #f0715f; --buy: #45c37e; --sell: #f0715f; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0a100f; --card: #121a18; --fg: #e5eeeb; --muted: #92a39d; --line: #22302c; --soft: #18221f;
+  --accent: #4cc3a9; --up: #45c37e; --down: #f0715f; --buy: #45c37e; --sell: #f0715f; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.45 var(--font); font-variant-numeric: tabular-nums;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-top: max(18px, env(safe-area-inset-top, 0px)); padding-bottom: max(48px, env(safe-area-inset-bottom, 0px));
+}
+main { max-width: 760px; margin: 0 auto; display: grid; gap: 16px; }
+h1 { font-size: 1.25rem; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 1rem; margin: 0; }
+.muted { color: var(--muted); font-size: .88rem; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.bar .left { display: flex; align-items: center; gap: 10px; }
+.paper { font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent);
+         border: 1.5px solid var(--accent); padding: 2px 8px; border-radius: 6px; }
+.stale { color: var(--down); border-color: var(--down); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; min-width: 0; }
+.account { padding: 18px 18px 16px; display: grid; gap: 14px; }
+.label { font-size: .82rem; color: var(--muted); font-weight: 500; }
+.value-big { font-size: clamp(2rem, 8vw, 2.6rem); font-weight: 600; letter-spacing: -0.03em; line-height: 1.05; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.stat { display: grid; gap: 2px; }
+.stat .v { font-size: 1.05rem; font-weight: 600; }
+.up { color: var(--up); } .down { color: var(--down); }
+.split { display: grid; gap: 6px; }
+.splitbar { display: flex; height: 8px; border-radius: 99px; overflow: hidden; background: var(--soft); }
+.splitbar span { display: block; height: 100%; }
+.splitlegend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: .85rem; color: var(--muted); }
+.splitlegend i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; background: var(--soft); padding: 4px; border-radius: 12px; }
+.tabs button { font: inherit; font-size: .92rem; font-weight: 600; color: var(--muted); background: transparent; border: 0;
+               padding: 9px 6px; border-radius: 9px; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--card); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.list { display: grid; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 13px 16px; border-top: 1px solid var(--line); align-items: center; }
+.row:first-child { border-top: 0; }
+.sym { font-weight: 700; font-size: 1rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sub { font-size: .82rem; color: var(--muted); }
+.right { text-align: right; display: grid; gap: 1px; justify-items: end; }
+.right .main { font-weight: 600; }
+.tag { font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 6px;
+       background: var(--soft); color: var(--muted); }
+.tag.buy { background: color-mix(in srgb, var(--buy) 14%, transparent); color: var(--buy); }
+.tag.sell { background: color-mix(in srgb, var(--sell) 14%, transparent); color: var(--sell); }
+.section-head { padding: 12px 16px 4px; font-size: .78rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.empty { padding: 22px 16px; color: var(--muted); font-size: .92rem; }
+.pad { padding: 16px; display: grid; gap: 10px; }
+.chart { width: 100%; height: auto; display: block; }
+.chart .grid { stroke: var(--line); }
+.chart .axis { fill: var(--muted); font: 12px var(--font); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: .85rem; color: var(--muted); }
+.legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+details summary { cursor: pointer; padding: 14px 16px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; }
+details summary::-webkit-details-marker { display: none; }
+details summary::after { content: "Visa"; color: var(--accent); font-weight: 600; font-size: .9rem; }
+details[open] summary::after { content: "Dölj"; }
+.report { padding: 0 16px 14px; overflow-x: auto; }
+.report h2, .report h3, .report h4 { margin: 16px 0 6px; font-size: .98rem; }
+.report p { margin: 8px 0; max-width: 72ch; }
+.report blockquote { margin: 8px 0; padding: 6px 12px; border-left: 3px solid var(--accent); color: var(--muted); }
+.report hr { border: 0; border-top: 1px solid var(--line); margin: 12px 0; }
+.report table { border-collapse: collapse; font-size: .88rem; margin: 6px 0; }
+.report th, .report td { padding: 6px 9px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.note { color: var(--muted); font-size: .82rem; max-width: 72ch; }
+.loading .card { opacity: .55; }
+.hint { background: var(--soft); border-radius: 12px; padding: 10px 14px; font-size: .88rem; color: var(--muted); display: flex; gap: 10px; justify-content: space-between; align-items: center; }
+.hint button { font: inherit; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 4px; cursor: pointer; }
+.refresh { font: inherit; font-size: .88rem; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 4px 0; cursor: pointer; }
 </style>
 </head>
 <body>
-<main>
-<h1>📈 Tradingbot — läget</h1>
-<div class="muted">Allt på papper sedan 2026-11-01. Uppdaterad 2026-11-03 13:00 UTC.</div>
 
-<div class="hero">
-  <div class="muted">Hypotetiska 10 000 kr sedan 2026-11-02</div>
-  <div class="big">10 000 kr</div>
-  <div class="value ">+0 kr (+0,0 %)</div>
-  <div class="grid"><div class="card"><div class="label">Rotationen (boten)</div><div class="sub">insats 10 000 kr</div><div class="value ">+0,0 %</div></div>
-<div class="card"><div class="label">Om allt låg i S&amp;P 500</div><div class="sub">insats 10 000 kr</div><div class="value ">10 000 kr</div></div>
-<div class="card"><div class="label">Raketportfölj (papper, på kul)</div><div class="sub">insats 10 000 kr</div><div class="value up">10 203 kr</div></div></div>
-</div>
+<main id="app" class="loading">
+  <header class="bar">
+    <div class="left"><h1>Min depå</h1><span class="paper">Papper</span><span class="paper stale" id="stale" hidden>Inaktuell</span></div>
+    <div class="muted"><span id="updated">Hämtar …</span> · <button class="refresh" id="refresh" type="button">Uppdatera</button></div>
+  </header>
 
-<h2>Utveckling sedan omstarten</h2>
-<div class="chartbox"><svg viewBox="0 0 480 220" role="img" aria-label="Utveckling sedan omstarten" class="chart"><line x1="74" x2="470" y1="204.0" y2="204.0" class="grid"/><text x="68" y="208.0" text-anchor="end" class="axis">10 000 kr</text><line x1="74" x2="470" y1="110.0" y2="110.0" class="grid"/><text x="68" y="114.0" text-anchor="end" class="axis">10 102 kr</text><line x1="74" x2="470" y1="16.0" y2="16.0" class="grid"/><text x="68" y="20.0" text-anchor="end" class="axis">10 203 kr</text><text x="74.0" y="219" text-anchor="start" class="axis">2026-11-02</text><text x="470.0" y="219" text-anchor="end" class="axis">2026-11-03</text><polyline points="74.0,204.0 470.0,204.0" fill="none" stroke="var(--accent)" stroke-width="2.5"/><circle cx="74.0" cy="204.0" r="3" fill="var(--accent)"/><circle cx="470.0" cy="204.0" r="3" fill="var(--accent)"/><polyline points="74.0,204.0 470.0,204.0" fill="none" stroke="var(--muted)" stroke-width="2.5"/><circle cx="74.0" cy="204.0" r="3" fill="var(--muted)"/><circle cx="470.0" cy="204.0" r="3" fill="var(--muted)"/><polyline points="470.0,16.0" fill="none" stroke="var(--up)" stroke-width="2.5"/><circle cx="470.0" cy="16.0" r="3" fill="var(--up)"/></svg><div class="legend"><span><i style="background:var(--accent)"></i>Din fördelning</span><span><i style="background:var(--muted)"></i>Allt i S&amp;P 500</span><span><i style="background:var(--up)"></i>Raketportfölj (papper)</span></div></div>
+  <div class="hint" id="hint" hidden>
+    <span>Tips: lägg appen på hemskärmen. iPhone: Dela → Lägg till på hemskärmen. Android: menyn ⋮ → Lägg till på startskärmen.</span>
+    <button type="button" id="hintClose" aria-label="Stäng tipset">OK</button>
+  </div>
 
-<h2>Rotationens innehav (i kronor sedan omstarten)</h2>
-<table><thead><tr><th>Aktie</th><th>Status</th><th>Resultat</th></tr></thead><tbody>
-<tr><td>AMD</td><td>öppen</td><td class="">+0,0 %</td></tr>
-<tr><td>MU</td><td>öppen</td><td class="">+0,0 %</td></tr>
-<tr><td>CRWD</td><td>öppen</td><td class="">+0,0 %</td></tr>
-<tr><td>PANW</td><td>öppen</td><td class="">+0,0 %</td></tr>
-<tr><td>ADP</td><td>öppen</td><td class="">+0,0 %</td></tr>
-<tr><td>TMO</td><td>öppen</td><td class="">+0,0 %</td></tr>
-<tr><td>LLY</td><td>öppen</td><td class="">+0,0 %</td></tr>
-<tr><td>PLTR</td><td>öppen</td><td class="">+0,0 %</td></tr>
-</tbody></table>
+  <section class="card account" aria-label="Depåöversikt">
+    <div>
+      <div class="label" id="valueLabel">Depåvärde</div>
+      <div class="value-big" id="total">– kr</div>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="label" id="todayLabel">Idag</span><span class="v" id="today">–</span></div>
+      <div class="stat"><span class="label" id="sinceLabel">Sedan start</span><span class="v" id="since">–</span></div>
+      <div class="stat"><span class="label">Insatt</span><span class="v" id="invested">–</span></div>
+    </div>
+    <div class="split">
+      <div class="splitbar" id="splitbar"></div>
+      <div class="splitlegend" id="splitlegend"></div>
+    </div>
+  </section>
 
-<h2>Dagens rapport från boten</h2>
-<div class="report"><h2>Tradingbot 2026-11-03</h2>
-<p><strong>Marknaden:</strong> SPY okänt sitt 200-dagars snitt<br><strong>Strategi:</strong> momentum-rotation — top8, in RS&gt;=0.8, out RS&lt;0.5<br><strong>Portfölj:</strong> $10,000 · 8/8 innehav · senaste handelsdag i datan: 2026-11-02</p>
-<blockquote>⚠ Reglerna klarar inte forskningens förhandsbestämda krav (slår inte SPY riskjusterat). Ingen testad variant har slagit att bara äga en S&amp;P 500-fond riskjusterat — se signalerna som ett aktivt alternativ med ungefär indexlik historik, inte som en bevisad fördel.</blockquote>
-<h3>🟢 KÖP (0)</h3>
-<p>Ingen ny handelsdag sedan förra körningen (helgdag eller omkörning) — inga nya beslut.</p>
-<h3>🔴 SÄLJ (0)</h3>
-<p>Inga säljsignaler idag.</p>
-<h3>📊 Innehav (8/8)</h3>
-<table><thead><tr><th>Aktie</th><th>Köpt</th><th>Senast</th><th>Resultat</th><th>Rel. styrka nu</th><th>Dagar</th></tr></thead><tbody><tr><td>AMD</td><td>624.9</td><td>466.84</td><td>-25.3%</td><td>—</td><td>26</td></tr><tr><td>MU</td><td>1075.81</td><td>833.59</td><td>-22.5%</td><td>—</td><td>26</td></tr><tr><td>CRWD</td><td>257.19</td><td>241.81</td><td>-6.0%</td><td>—</td><td>25</td></tr><tr><td>PANW</td><td>390.1</td><td>351.72</td><td>-9.8%</td><td>—</td><td>25</td></tr><tr><td>ADP</td><td>296.86</td><td>298.78</td><td>+0.7%</td><td>—</td><td>8</td></tr><tr><td>TMO</td><td>672.69</td><td>682.65</td><td>+1.5%</td><td>—</td><td>7</td></tr><tr><td>LLY</td><td>1273.5</td><td>1410.99</td><td>+10.8%</td><td>—</td><td>5</td></tr><tr><td>PLTR</td><td>193.625</td><td>178.34</td><td>-7.9%</td><td>—</td><td>2</td></tr></tbody></table>
-<h3>📈 Resultat hittills (papperstrading, riktiga fyllnadspriser, avgifter inräknade)</h3>
-<p>5 stängda affärer · 0% vinnare · snitt -21.67% per affär</p>
-<hr>
-<p>Backtest av exakt dessa regler (backtest 8.7 år på storbolag valda 2015, samma regler): +15.9%/år, största nedgång -29% — SPY samma period +14.9%/år, största nedgång -34%.<br>Universum: 107 aktier (0 utan data idag).<br>Boten handlar aldrig åt dig. Historik är ingen garanti — varje affär kan förlora.</p>
-<h3>⚖️ Mot index (SPY) — måttstocken som räknas</h3>
-<p>Sedan 2026-09-25: rotationen <strong>-20.9 %</strong> · SPY <strong>-2.5 %</strong> · skillnad <strong>-18.4 procentenheter</strong>.</p>
-<table><thead><tr><th>Kvartal</th><th>Rotationen</th><th>SPY</th><th>Skillnad</th></tr></thead><tbody><tr><td>2026 K3 (från 2026-09-25)</td><td>-0.5 %</td><td>-1.1 %</td><td>+0.6</td></tr><tr><td>2026 K4 (pågår)</td><td>-20.5 %</td><td>-1.4 %</td><td>-19.1</td></tr></tbody></table>
-<p>Bedöm boten över 1–2 år mot SPY, inte på enskilda dagar eller veckor. Öppna innehav räknas till senaste stängning (utan säljavgift), tomma platser som kontanter.</p>
-<h3>🚀 Raketer — papperstrading (köp inte)</h3>
-<table><thead><tr><th>Raket</th><th>Typ</th><th>&#x27;Köpt&#x27;</th><th>Senast</th><th>Resultat</th><th>Dagar</th></tr></thead><tbody><tr><td>CCL</td><td>papper</td><td>24.66</td><td>30.05</td><td>+21.9%</td><td>23</td></tr><tr><td>TDOC</td><td>lekpott</td><td>8.56</td><td>8.63</td><td>+0.8%</td><td>1</td></tr><tr><td>REGN</td><td>papper</td><td>nästa öppning</td><td>961.26</td><td>—</td><td>0</td></tr></tbody></table>
-<p>🚀 Raketportfölj (papper, på kul) sedan 2026-09-30: 10 000 $ → <strong>10 227 $</strong> (+2.3 %) · 3 öppna · 0 avslutade · 0 signaler fick inte plats.<br>Samma storlek som i testet: 10 % per raket, högst 10 samtidigt, högst 3 nya per dag. Regeln är inte bevisad — det här är ett experiment, inga riktiga pengar.</p>
-<p>Inga avslutade pappersraketer ännu.</p></div>
+  <nav class="tabs" role="tablist" aria-label="Visa">
+    <button role="tab" id="tab-holdings" aria-selected="true" aria-controls="view-holdings">Innehav</button>
+    <button role="tab" id="tab-trades" aria-selected="false" aria-controls="view-trades">Transaktioner</button>
+    <button role="tab" id="tab-orders" aria-selected="false" aria-controls="view-orders">Order</button>
+  </nav>
 
-<p class="note">Inga riktiga pengar handlas — boten handlar aldrig åt dig. Siffrorna är hypotetiska och räknade på riktiga
-kurser och valutakurser. Historik är ingen garanti för framtiden; varje affär kan förlora.</p>
+  <section class="card" id="view-holdings" role="tabpanel" aria-labelledby="tab-holdings">
+    <div class="list" id="holdings"><div class="empty">Innehaven visas här när datan har laddats.</div></div>
+  </section>
+  <section class="card" id="view-trades" role="tabpanel" aria-labelledby="tab-trades" hidden>
+    <div class="list" id="trades"></div>
+  </section>
+  <section class="card" id="view-orders" role="tabpanel" aria-labelledby="tab-orders" hidden>
+    <div class="list" id="orders"></div>
+  </section>
+
+  <section class="card pad" aria-label="Utveckling">
+    <h2>Utveckling sedan start</h2>
+    <div id="chart"><p class="muted">Kurvan fylls på för varje handelsdag.</p></div>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>Botens dagsrapport</summary>
+      <div class="report" id="report"></div>
+    </details>
+  </section>
+
+  <p class="note">Det här är papperstrading: inga riktiga pengar och inga riktiga order. Varje köp och sälj är botens
+    signal, räknad på riktiga kurser och valutakurser. Boten handlar aldrig åt dig, och historik är ingen garanti.</p>
 </main>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmt0 = new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 0 });
+const fmt2 = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const sign = v => v > 0 ? "+" : v < 0 ? "−" : "±";
+const kr = v => v == null ? "–" : fmt0.format(Math.round(v)) + " kr";
+const skr = v => v == null ? "–" : sign(Math.round(v)) + fmt0.format(Math.abs(Math.round(v))) + " kr";
+const pct = v => v == null ? "–" : sign(+v.toFixed(1)) + Math.abs(v).toFixed(1).replace(".", ",") + " %";
+const usd = v => v == null ? "–" : fmt2.format(v) + " $";
+const tone = v => v == null || Math.abs(v) < 0.05 ? "" : v > 0 ? "up" : "down";
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const inline = s => esc(s).split("**").map((p, i) => i % 2 ? `<strong>${p}</strong>` : p).join("");
+const MONTHS = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
+const day = d => { if (!d) return "–"; const [y, m, dd] = d.split("-").map(Number); return `${dd} ${MONTHS[m - 1]}`; };
+
+// ---- tabs ------------------------------------------------------------------
+const TABS = ["holdings", "trades", "orders"];
+function showTab(name) {
+  for (const t of TABS) {
+    $("tab-" + t).setAttribute("aria-selected", String(t === name));
+    $("view-" + t).hidden = t !== name;
+  }
+  try { localStorage.setItem("tab", name); } catch (e) {}
+}
+for (const t of TABS) $("tab-" + t).addEventListener("click", () => showTab(t));
+try { const saved = localStorage.getItem("tab"); if (TABS.includes(saved)) showTab(saved); } catch (e) {}
+
+// ---- report (the Markdown subset the bot writes; everything escaped) ---------
+function renderReport(md) {
+  const lines = String(md || "").split("\n"), out = [];
+  const starts = l => /^\s*(\||#|- |>)/.test(l) || l.trim() === "---";
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i].trimEnd();
+    if (!line.trim()) { i++; continue; }
+    if (line.trimStart().startsWith("|")) {
+      const rows = [];
+      while (i < lines.length && lines[i].trimStart().startsWith("|")) {
+        const cells = lines[i].trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+        if (!cells.every(c => /^[-: ]*$/.test(c))) rows.push(cells);
+        i++;
+      }
+      if (rows.length) out.push("<table><thead><tr>" + rows[0].map(c => `<th>${inline(c)}</th>`).join("") + "</tr></thead><tbody>" +
+        rows.slice(1).map(r => "<tr>" + r.map(c => `<td>${inline(c)}</td>`).join("") + "</tr>").join("") + "</tbody></table>");
+    } else if (line.startsWith("#")) {
+      const lv = Math.min(line.match(/^#+/)[0].length + 1, 4);
+      out.push(`<h${lv}>${inline(line.replace(/^#+/, "").trim())}</h${lv}>`); i++;
+    } else if (line.trim() === "---") { out.push("<hr>"); i++; }
+    else if (line.trimStart().startsWith("- ")) {
+      const items = [];
+      while (i < lines.length && lines[i].trimStart().startsWith("- ")) { items.push(`<li>${inline(lines[i].trimStart().slice(2))}</li>`); i++; }
+      out.push("<ul>" + items.join("") + "</ul>");
+    } else if (line.startsWith(">")) {
+      const q = [];
+      while (i < lines.length && lines[i].startsWith(">")) { q.push(lines[i].replace(/^>\s*/, "")); i++; }
+      out.push(`<blockquote>${inline(q.join(" "))}</blockquote>`);
+    } else {
+      const p = [];
+      while (i < lines.length && lines[i].trim() && !starts(lines[i])) { p.push(inline(lines[i].trim())); i++; }
+      out.push(`<p>${p.join("<br>")}</p>`);
+    }
+  }
+  return out.join("");
+}
+
+// ---- chart -------------------------------------------------------------------
+let lastHistory = [];
+function renderChart(history, width) {
+  const series = [["total_sek", "Min depå", "var(--accent)"], ["spy_sek", "Allt i S&P 500", "var(--muted)"]];
+  const vals = history.flatMap(p => series.map(([k]) => p[k]).filter(v => v != null));
+  if (history.length < 2 || !vals.length) return '<p class="muted">Kurvan fylls på för varje handelsdag.</p>';
+  const W = Math.max(300, Math.round(width || 640)), H = Math.round(Math.min(250, Math.max(180, W * 0.4)));
+  const L = 82, R = 12, T = 12, B = 26;
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi - lo < 1) { lo -= 50; hi += 50; }
+  const x = i => L + (W - L - R) * i / (history.length - 1);
+  const y = v => T + (H - T - B) * (hi - v) / (hi - lo);
+  let svg = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Depåns värde per handelsdag">`;
+  for (const v of [lo, (lo + hi) / 2, hi]) {
+    svg += `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/>` +
+           `<text class="axis" x="${L - 8}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end">${esc(kr(v))}</text>`;
+  }
+  svg += `<text class="axis" x="${L}" y="${H - 6}">${esc(day(history[0].date))}</text>` +
+         `<text class="axis" x="${W - R}" y="${H - 6}" text-anchor="end">${esc(day(history[history.length - 1].date))}</text>`;
+  const legend = [];
+  for (const [k, label, color] of series) {
+    const pts = history.map((p, i) => p[k] == null ? null : [x(i), y(p[k])]).filter(Boolean);
+    if (!pts.length) continue;
+    svg += `<polyline points="${pts.map(([a, b]) => a.toFixed(1) + "," + b.toFixed(1)).join(" ")}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round"/>`;
+    const [ex, ey] = pts[pts.length - 1];
+    svg += `<circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="4.5" fill="${color}"/>`;
+    legend.push(`<span><i style="background:${color}"></i>${esc(label)}</span>`);
+  }
+  return svg + `</svg><div class="legend">${legend.join("")}</div>`;
+}
+function drawChart() { $("chart").innerHTML = renderChart(lastHistory, $("chart").clientWidth); }
+let resizeTimer;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(drawChart, 150); });
+
+// ---- views ---------------------------------------------------------------------
+function row(left, sub, rightMain, rightSub, rightTone = "", tags = "") {
+  return `<div class="row"><div><div class="sym">${left}${tags}</div><div class="sub">${sub}</div></div>` +
+         `<div class="right"><span class="main">${rightMain}</span><span class="sub ${rightTone}">${rightSub}</span></div></div>`;
+}
+
+function renderHoldings(s) {
+  const out = [];
+  const indexStake = s.base_sek * (s.index_pct || 0) / 100;
+  if (indexStake) {
+    const v = s.index_sek_pct == null ? null : indexStake * (1 + s.index_sek_pct / 100);
+    out.push(row("S&P 500-fond", `Insatt ${kr(indexStake)} · ${Math.round(s.index_pct)} % av depån`,
+                 esc(kr(v ?? indexStake)), `${skr(v == null ? null : v - indexStake)} · ${pct(s.index_sek_pct)}`, tone(s.index_sek_pct),
+                 ' <span class="tag">Fond</span>'));
+  }
+  const pos = (s.positions || []).filter(p => (p.invested_sek ?? 1) > 0);
+  const open = pos.filter(p => p.status !== "closed");
+  const closed = pos.filter(p => p.status === "closed");
+  for (const p of open) {
+    const pending = p.status === "pending";
+    const gain = p.value_sek != null && p.invested_sek != null ? p.value_sek - p.invested_sek : null;
+    const tags = (p.kind === "lekpott" ? ' <span class="tag">Raket</span>' : "") +
+                 (pending ? ' <span class="tag buy">Köps vid öppning</span>' : "") +
+                 (p.sell_signaled ? ' <span class="tag sell">Säljs vid öppning</span>' : "");
+    const sub = pending ? `Insatt ${kr(p.invested_sek)} · senast ${usd(p.last_price)}`
+                        : `GAV ${usd(p.entry_price)} · senast ${usd(p.last_price)}`;
+    out.push(row(esc(p.symbol), sub, esc(kr(pending ? p.invested_sek : p.value_sek)),
+                 pending ? "väntar på köp" : `${skr(gain)} · ${pct(p.sek_return_pct)}`, tone(p.sek_return_pct), tags));
+  }
+  if (closed.length) {
+    out.push('<div class="section-head">Sålda sedan start</div>');
+    for (const p of closed) {
+      const gain = p.value_sek != null && p.invested_sek != null ? p.value_sek - p.invested_sek : null;
+      out.push(row(esc(p.symbol), `Köpt ${usd(p.entry_price)} · såld ${usd(p.last_price)}`, esc(skr(gain)), pct(p.sek_return_pct),
+                   tone(p.sek_return_pct), ' <span class="tag">Såld</span>'));
+    }
+  }
+  if (s.rocket_paper_sek != null) {
+    const g = s.rocket_paper_sek - s.base_sek;
+    out.push('<div class="section-head">Raketportfölj (separat, på kul)</div>');
+    out.push(row("Raketportfölj", `Följer varje raketsignal · insatt ${kr(s.base_sek)}`, esc(kr(s.rocket_paper_sek)),
+                 `${skr(g)} · ${pct(g / s.base_sek * 100)}`, tone(g)));
+  }
+  $("holdings").innerHTML = out.join("") || '<div class="empty">Inga innehav ännu.</div>';
+}
+
+function renderTrades(s) {
+  const events = [];
+  for (const t of s.trades || []) {
+    const tag = t.kind === "lekpott" ? ' <span class="tag">Raket</span>' : "";
+    if (t.buy_date) events.push({ date: t.buy_date, order: 0, html: row(
+      `<span class="tag buy">Köp</span> ${esc(t.symbol)}`, `${day(t.buy_date)} · vid öppning`, esc(usd(t.buy_price)), "kurs", "", tag) });
+    if (t.sell_date) events.push({ date: t.sell_date, order: 1, html: row(
+      `<span class="tag sell">Sälj</span> ${esc(t.symbol)}`, `${day(t.sell_date)} · ${esc(t.sell_reason || "säljsignal")}`,
+      esc(usd(t.sell_price)), `resultat ${pct(t.return_pct)}`, tone(t.return_pct), tag) });
+  }
+  events.sort((a, b) => b.date.localeCompare(a.date) || b.order - a.order);
+  const closed = (s.trades || []).filter(t => t.status === "closed" && t.return_pct != null);
+  const wins = closed.filter(t => t.return_pct > 0).length;
+  const head = closed.length
+    ? `<div class="section-head">${closed.length} avslutade affärer · ${wins} med vinst · snitt ${pct(closed.reduce((a, t) => a + t.return_pct, 0) / closed.length)} (i dollar, efter avgift)</div>`
+    : "";
+  $("trades").innerHTML = head + (events.map(e => e.html).join("") || '<div class="empty">Inga transaktioner ännu.</div>');
+}
+
+function renderOrders(s) {
+  const out = [];
+  for (const t of s.trades || []) {
+    if (t.status === "pending") out.push(row(`<span class="tag buy">Köp</span> ${esc(t.symbol)}`,
+      `Signal ${day(t.signal_date)} · köps vid nästa öppning`, esc(usd(t.last_price)), "senaste kurs", "",
+      t.kind === "lekpott" ? ' <span class="tag">Raket</span>' : ""));
+    else if (t.status === "open" && t.sell_signal_date) out.push(row(`<span class="tag sell">Sälj</span> ${esc(t.symbol)}`,
+      `Signal ${day(t.sell_signal_date)} · ${esc(t.sell_reason || "säljs vid nästa öppning")}`, esc(usd(t.last_price)), "senaste kurs"));
+  }
+  $("orders").innerHTML = out.length ? out.join("") :
+    '<div class="empty">Inga order just nu. Nya köp och sälj dyker upp här morgonen efter botens signal och genomförs vid nästa börsöppning.</div>';
+}
+
+function render(s) {
+  $("app").classList.remove("loading");
+  const ageDays = (Date.now() - Date.parse(String(s.updated).replace(" UTC", "Z").replace(" ", "T"))) / 864e5;
+  $("stale").hidden = !(ageDays > 4);
+  $("updated").textContent = `Uppdaterad ${s.updated}`;
+  $("valueLabel").textContent = `Depåvärde · start ${day(s.since)}`;
+  $("total").textContent = kr(s.total_sek);
+  const today = $("today");
+  today.textContent = s.today_sek == null ? "–" : skr(s.today_sek);
+  today.className = "v " + tone(s.today_sek);
+  $("todayLabel").textContent = s.previous_date ? `Sedan ${day(s.previous_date)}` : "Idag";
+  const since = $("since");
+  since.textContent = `${skr(s.delta_sek)} · ${pct(s.delta_pct)}`;
+  since.className = "v " + tone(s.delta_sek);
+  $("invested").textContent = kr(s.base_sek);
+  const indexPct = s.index_pct || 0, botPct = 100 - indexPct;
+  $("splitbar").innerHTML = (indexPct ? `<span style="width:${indexPct}%;background:var(--muted)"></span>` : "") +
+                            `<span style="width:${botPct}%;background:var(--accent)"></span>`;
+  $("splitlegend").innerHTML = (indexPct ? `<span><i style="background:var(--muted)"></i>S&amp;P 500-fond ${Math.round(indexPct)} %</span>` : "") +
+                               `<span><i style="background:var(--accent)"></i>Aktier via boten ${Math.round(botPct)} %</span>`;
+  renderHoldings(s); renderTrades(s); renderOrders(s);
+  lastHistory = Array.isArray(s.history) ? s.history : [];
+  drawChart();
+  $("report").innerHTML = renderReport(s.report_md);
+}
+
+function unavailable(text) {
+  $("updated").textContent = text;
+  $("holdings").innerHTML = `<div class="empty">${esc(text)}</div>`;
+}
+
+// ---- data: the bot writes status.json next to this page after every daily run --------------
+const CACHE_KEY = "status-cache";
+let loading = false;
+async function load() {
+  if (loading) return;
+  loading = true;
+  $("updated").textContent = "Hämtar …";
+  try {
+    const res = await fetch("status.json?t=" + Date.now(), { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const s = await res.json();
+    render(s);
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(s)); } catch (e) {}
+  } catch (e) {
+    let cached = null;
+    try { cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null"); } catch (err) {}
+    if (cached) { render(cached); $("updated").textContent = `Uppdaterad ${cached.updated} · offline, visar sparad`; }
+    else unavailable("Datan kunde inte hämtas just nu. Kontrollera nätet och tryck Uppdatera.");
+  } finally { loading = false; }
+}
+$("refresh").addEventListener("click", load);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") load(); });
+load();
+
+// ---- home-screen tip (only in a normal browser tab, until dismissed) -----------------------
+const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+let tipDismissed = false;
+try { tipDismissed = localStorage.getItem("hint-dismissed") === "1"; } catch (e) {}
+if (!standalone && !tipDismissed) $("hint").hidden = false;
+$("hintClose").addEventListener("click", () => {
+  $("hint").hidden = true;
+  try { localStorage.setItem("hint-dismissed", "1"); } catch (e) {}
+});
+</script>
 </body>
 </html>
