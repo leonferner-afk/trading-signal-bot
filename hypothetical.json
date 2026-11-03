@@ -5,11 +5,13 @@
   "delta_pct": 0.0,
   "since": "2026-11-02",
   "fx_missing": 0,
-  "message": "\ud83d\udcb0 Hypotetiska 10 000 kr (sedan 2026-11-02): **10 000 kr** (+0 kr, +0.0%)\nAMD +0.0%, MU +0.0%, CRWD +0.0%, PANW +0.0%, ADP +0.0%, TMO +0.0%, LLY +0.0%, PLTR +0.0%\nJ\u00e4mf\u00f6relse: hela 10 000 kr i S&P 500 hade varit 10 000 kr.\n\ud83d\ude80 Raketportf\u00f6lj (papper, p\u00e5 kul) sedan 2026-09-30: 10 000 kr \u2192 **10 203 kr** (+2.0%)",
+  "message": "\ud83d\udcb0 Hypotetiska 10 000 kr (sedan 2026-11-02): **10 000 kr** (+0 kr, +0.0%)\nNasdaq 100-fond 10 000 kr: +0.0%\nJ\u00e4mf\u00f6relse: hela 10 000 kr i S&P 500 hade varit 10 000 kr.\n\ud83d\ude80 Raketportf\u00f6lj (papper, p\u00e5 kul) sedan 2026-09-30: 10 000 kr \u2192 **10 203 kr** (+2.0%)",
   "rocket_paper_sek": 10203.18,
   "pot_pct": 0.0,
-  "index_pct": 0.0,
+  "index_pct": 100.0,
   "index_sek_pct": 0.0,
+  "fund_symbol": "QQQ",
+  "fund_sek_pct": 0.0,
   "positions": [
     {
       "symbol": "AMD",
@@ -20,9 +22,9 @@
       "id": 1,
       "entry_price": 466.8399963378906,
       "last_price": 466.8399963378906,
-      "invested_sek": 1250.0,
+      "invested_sek": 0.0,
       "sell_signaled": false,
-      "value_sek": 1250.0
+      "value_sek": 0.0
     },
     {
       "symbol": "MU",
@@ -33,9 +35,9 @@
       "id": 2,
       "entry_price": 833.5900268554688,
       "last_price": 833.5900268554688,
-      "invested_sek": 1250.0,
+      "invested_sek": 0.0,
       "sell_signaled": false,
-      "value_sek": 1250.0
+      "value_sek": 0.0
     },
     {
       "symbol": "CRWD",
@@ -46,9 +48,9 @@
       "id": 4,
       "entry_price": 241.80999755859375,
       "last_price": 241.80999755859375,
-      "invested_sek": 1250.0,
+      "invested_sek": 0.0,
       "sell_signaled": false,
-      "value_sek": 1250.0
+      "value_sek": 0.0
     },
     {
       "symbol": "PANW",
@@ -59,9 +61,9 @@
       "id": 5,
       "entry_price": 351.7200012207031,
       "last_price": 351.7200012207031,
-      "invested_sek": 1250.0,
+      "invested_sek": 0.0,
       "sell_signaled": false,
-      "value_sek": 1250.0
+      "value_sek": 0.0
     },
     {
       "symbol": "ADP",
@@ -72,9 +74,9 @@
       "id": 11,
       "entry_price": 298.7799987792969,
       "last_price": 298.7799987792969,
-      "invested_sek": 1250.0,
+      "invested_sek": 0.0,
       "sell_signaled": false,
-      "value_sek": 1250.0
+      "value_sek": 0.0
     },
     {
       "symbol": "TMO",
@@ -85,9 +87,9 @@
       "id": 12,
       "entry_price": 682.6500244140625,
       "last_price": 682.6500244140625,
-      "invested_sek": 1250.0,
+      "invested_sek": 0.0,
       "sell_signaled": false,
-      "value_sek": 1250.0
+      "value_sek": 0.0
     },
     {
       "symbol": "LLY",
@@ -98,9 +100,9 @@
       "id": 13,
       "entry_price": 1410.989990234375,
       "last_price": 1410.989990234375,
-      "invested_sek": 1250.0,
+      "invested_sek": 0.0,
       "sell_signaled": false,
-      "value_sek": 1250.0
+      "value_sek": 0.0
     },
     {
       "symbol": "PLTR",
@@ -111,9 +113,9 @@
       "id": 14,
       "entry_price": 178.33999633789062,
       "last_price": 178.33999633789062,
-      "invested_sek": 1250.0,
+      "invested_sek": 0.0,
       "sell_signaled": false,
-      "value_sek": 1250.0
+      "value_sek": 0.0
     },
     {
       "symbol": "TDOC",
