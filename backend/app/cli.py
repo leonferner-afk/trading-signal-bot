@@ -42,6 +42,20 @@ def cmd_daily(args: argparse.Namespace) -> int:
     return 0 if outcome.ok else 1
 
 
+def cmd_bots(args: argparse.Namespace) -> int:
+    """Backtests the whole-market ETF bot candidates (app/bot_research.py)."""
+    from app.bot_research import run
+    from app.config import settings
+
+    report = run(fee_bps=settings.fee_bps)
+    print(report)
+    _append_step_summary(report)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            fh.write(report)
+    return 0
+
+
 def cmd_dashboard(args: argparse.Namespace) -> int:
     """Rebuilds the public status page (GitHub Pages) from the run's files."""
     from pathlib import Path
@@ -210,6 +224,10 @@ def main(argv: list[str] | None = None) -> int:
     hypothetical.add_argument("--out", default="", help="optional path to write a JSON summary")
     hypothetical.add_argument("--notify-marker", default="", help="send the kronor depot message to Telegram once per new trading day (file remembers the last)")
     hypothetical.set_defaults(func=cmd_hypothetical)
+
+    bots = sub.add_parser("bots", help="backtest the whole-market ETF bot candidates")
+    bots.add_argument("--out", default="", help="optional path to write the Markdown report")
+    bots.set_defaults(func=cmd_bots)
 
     dashboard = sub.add_parser("dashboard", help="rebuild the public status page from the bot-state files")
     dashboard.add_argument("--state", required=True, help="checked-out bot-state directory")
