@@ -71,10 +71,10 @@ jobs:
           ROTATION_REBALANCE: ${{ vars.ROTATION_REBALANCE }}
           ROTATION_MA50_EXIT: ${{ vars.ROTATION_MA50_EXIT }}
           ROTATION_MA50_AFTER_EXTENSION: ${{ vars.ROTATION_MA50_AFTER_EXTENSION }}
-          # The owner chose (2026-11-01): the bot manages 25 % of the portfolio,
-          # the other 75 % sits in an S&P 500 fund the bot never touches — no
-          # tested variant has beaten the index risk-adjusted.
-          BOT_SHARE_PCT: ${{ vars.BOT_SHARE_PCT || '25' }}
+          # The owner chose (2026-11-03): the bot manages 100 % of the (paper)
+          # portfolio, no S&P 500 fund part. Higher risk: no tested variant has
+          # beaten the index risk-adjusted, and the report keeps saying so.
+          BOT_SHARE_PCT: ${{ vars.BOT_SHARE_PCT || '100' }}
           ROCKETS_MODE: ${{ vars.ROCKETS_MODE }}
           # Lekpott off (owner's choice 2026-11-01): earnings rockets are
           # followed on paper only until they've proven something. Rockets
@@ -94,11 +94,12 @@ jobs:
           DB_PATH: ${{ github.workspace }}/state/tradingbot.db
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           HYPOTHETICAL_BASE_SEK: ${{ vars.HYPOTHETICAL_BASE_SEK }}
-          # Restarted with a fresh 10 000 kr at the 2026-10-30 close for the new
-          # split (25 % rotation / 75 % S&P 500 fund, no lekpott); earlier
-          # results are not counted.
-          HYPOTHETICAL_SINCE: ${{ vars.HYPOTHETICAL_SINCE || '2026-10-30T20:00:00+00:00' }}
-          BOT_SHARE_PCT: ${{ vars.BOT_SHARE_PCT || '25' }}
+          # Restarted with a fresh 10 000 kr at the 2026-11-02 close for the new
+          # split (100 % rotation, no index part, no lekpott). The previous run
+          # (25 % bot / 75 % index from 2026-10-30) ended at 9 862 kr (-1.4 %);
+          # earlier results are not counted.
+          HYPOTHETICAL_SINCE: ${{ vars.HYPOTHETICAL_SINCE || '2026-11-02T21:00:00+00:00' }}
+          BOT_SHARE_PCT: ${{ vars.BOT_SHARE_PCT || '100' }}
           ROCKET_POT_PCT: ${{ vars.ROCKET_POT_PCT || '0' }}
         run: >-
           python -m app.cli hypothetical --base-sek "${HYPOTHETICAL_BASE_SEK:-10000}" --since "$HYPOTHETICAL_SINCE"

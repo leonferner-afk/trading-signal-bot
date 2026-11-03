@@ -124,7 +124,7 @@ delen av fördelen.
 - **Mot index:** dagsrapporten avslutas med rotationens resultat sedan första affären bredvid SPY:s under exakt samma dagar, per kalenderkvartal, och vad din fördelning (botens andel + indexfond) gav. Det är måttstocken: bedöm boten över 1–2 år mot SPY, inte per dag eller vecka.
 - **Portföljstorlek och fördelning** sätts som repo-variabler (Settings → Secrets and variables → Actions → Variables):
   - `PORTFOLIO_SIZE_USD` är hela portföljen (standard 10 000).
-  - `BOT_SHARE_PCT` är den andel boten förvaltar (25 i `daily.yml` sedan 2026-11-01, ägarens val).
+  - `BOT_SHARE_PCT` är den andel boten förvaltar (100 i `daily.yml` sedan 2026-11-03, ägarens val; 25 under 2026-11-01–02).
 
   Resten är tänkt att ligga i en S&P 500-fond som boten aldrig rör, och varje köp blir 1/8 av botens del.
 
@@ -133,7 +133,7 @@ delen av fördelen.
 | Namn | Standard | Vad |
 |---|---|---|
 | `PORTFOLIO_SIZE_USD` (variabel) | 10000 | Hela portföljens värde i USD |
-| `BOT_SHARE_PCT` (variabel) | 25 i `daily.yml` (100 i koden) | Andel av portföljen som boten förvaltar (resten: indexfond) |
+| `BOT_SHARE_PCT` (variabel) | 100 i `daily.yml` och i koden | Andel av portföljen som boten förvaltar (resten: indexfond) |
 | `ROCKET_POT_PCT` (variabel) | 0 | Lekpott: andel av portföljen som följer raketregeln med riktiga pengar. Tas från botens del. `0` = raketer bara på papper |
 | `ROCKET_POT_PAUSE_PCT` (variabel) | 30 | Nya lekpottsköp pausas när lekpotten har tappat så här mycket, tills pausen hävs medvetet |
 | `FEE_BPS` (variabel) | 15 | Courtage per affär i punkter; sätt 35 om du handlar från SEK-konto |
