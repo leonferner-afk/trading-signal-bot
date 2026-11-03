@@ -45,7 +45,14 @@ def test_build_site_writes_the_page_and_history(tmp_path):
     (tmp_path / "hypothetical.json").write_text(json.dumps(H), encoding="utf-8")
     (tmp_path / "reports" / "latest.md").write_text("# Rapport\n<script>alert(1)</script>", encoding="utf-8")
     page = build_site(tmp_path, tmp_path / "site", now=dt.datetime(2026, 11, 3, 6, 30, tzinfo=dt.timezone.utc))
-    text = page.read_text(encoding="utf-8")
+    site = tmp_path / "site"
+    # The home-screen app: a static shell that reads status.json, with its manifest and icons.
+    app = page.read_text(encoding="utf-8")
+    assert page.name == "index.html" and 'href="manifest.webmanifest"' in app and 'fetch("status.json' in app
+    manifest = json.loads((site / "manifest.webmanifest").read_text(encoding="utf-8"))
+    assert manifest["display"] == "standalone" and all((site / i["src"]).exists() for i in manifest["icons"])
+    assert (site / "apple-touch-icon.png").read_bytes().startswith(b"\x89PNG")
+    text = (site / "enkel.html").read_text(encoding="utf-8")
     assert "10 150 kr" in text and "+1,5 %" in text and "S&amp;P 500-fonden" in text and "10 400 kr" in text
     assert "<script>" not in text and "&lt;script&gt;" in text                    # report content is escaped
     assert "<svg" in text and "LLY" in text and "2026-11-03 06:30 UTC" in text

@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import html
 import json
+import shutil
 from pathlib import Path
 
 
@@ -256,9 +257,15 @@ def status_payload(h: dict, report_md: str, history: list[dict], updated: str) -
     }
 
 
+ASSETS = Path(__file__).parent / "site_assets"
+
+
 def build_site(state_dir: Path, out_dir: Path, now: dt.datetime | None = None) -> Path | None:
     """Reads the run's files from `state_dir`, updates state_dir/history.json
-    and writes out_dir/index.html. None when there is no tracker data yet."""
+    and writes the site to out_dir: the home-screen app (index.html, manifest,
+    icons — static files from site_assets/ that read status.json), status.json,
+    and enkel.html, a no-JavaScript version rendered here. Returns the app
+    page; None when there is no tracker data yet."""
     now = now or dt.datetime.now(dt.timezone.utc)
     hyp_path = state_dir / "hypothetical.json"
     if not hyp_path.exists():
@@ -272,8 +279,11 @@ def build_site(state_dir: Path, out_dir: Path, now: dt.datetime | None = None) -
     history_path.write_text(json.dumps(history, indent=1), encoding="utf-8")
     out_dir.mkdir(parents=True, exist_ok=True)
     updated = now.strftime("%Y-%m-%d %H:%M UTC")
+    for asset in ASSETS.iterdir():
+        if asset.is_file():
+            shutil.copyfile(asset, out_dir / asset.name)
+    (out_dir / "enkel.html").write_text(build_html(h, report, history, updated), encoding="utf-8")
     page = out_dir / "index.html"
-    page.write_text(build_html(h, report, history, updated), encoding="utf-8")
     (out_dir / "status.json").write_text(json.dumps(status_payload(h, report, history, updated), ensure_ascii=False),
                                          encoding="utf-8")
     return page
