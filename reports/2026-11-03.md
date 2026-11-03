@@ -2,7 +2,7 @@
 
 **Marknaden:** SPY okänt sitt 200-dagars snitt
 **Strategi:** momentum-rotation — top8, in RS>=0.8, out RS<0.5
-**Portfölj:** $10,000: rotationen $2,500 · S&P 500-fond $7,500 som boten inte rör · 8/8 innehav · senaste handelsdag i datan: 2026-11-02
+**Portfölj:** $10,000 · 8/8 innehav · senaste handelsdag i datan: 2026-11-02
 
 > ⚠ Reglerna klarar inte forskningens förhandsbestämda krav (slår inte SPY riskjusterat). Ingen testad variant har slagit att bara äga en S&P 500-fond riskjusterat — se signalerna som ett aktivt alternativ med ungefär indexlik historik, inte som en bevisad fördel.
 
@@ -34,7 +34,6 @@ Boten handlar aldrig åt dig. Historik är ingen garanti — varje affär kan f�
 
 ## ⚖️ Mot index (SPY) — måttstocken som räknas
 Sedan 2026-09-25: rotationen **-20.9 %** · SPY **-2.5 %** · skillnad **-18.4 procentenheter**.
-Med fördelningen 25 % bot / 75 % S&P 500-fond: **-7.1 %** under samma tid.
 
 | Kvartal | Rotationen | SPY | Skillnad |
 |---|---|---|---|
