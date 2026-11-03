@@ -316,10 +316,47 @@ def depot_notice(payload: dict, session: str, previous_session: str | None) -> s
         elif (p["status"] == "closed" and gain is not None and t.get("sell_date")
               and (previous_session is None or t["sell_date"] > previous_session)):
             events.append(f"✅ Sålt {p['symbol']}: {_kr_signed(gain)} ({_pct_sv(p.get('sek_return_pct'))})")
+    rockets = payload.get("rockets") or {}
+    for r in rockets.get("rows", []):
+        gain = None if r.get("value_sek") is None else r["value_sek"] - r["invested_sek"]
+        if r["status"] == "pending":
+            events.append(f"🚀 RAKET KÖP {r['symbol']} vid nästa öppning · {_fmt_kr(r['invested_sek'])} kr")
+        elif r["status"] == "open" and r.get("sell_signaled"):
+            events.append(f"🚀 RAKET SÄLJ {r['symbol']} vid nästa öppning"
+                          + ("" if gain is None else f" · nu {_kr_signed(gain)} ({_pct_sv(r.get('sek_return_pct'))})"))
+        elif (r["status"] == "closed" and gain is not None and r.get("sell_date")
+              and (previous_session is None or r["sell_date"] > previous_session)):
+            events.append(f"🚀 Raket såld {r['symbol']}: {_kr_signed(gain)} ({_pct_sv(r.get('sek_return_pct'))})")
     lines += events or ["Inga köp eller sälj idag."]
     lines.append(f"Depå: {_fmt_kr(payload['total_sek'])} kr · sedan start {payload.get('since', '')}: "
                  f"{_kr_signed(payload['delta_sek'])} ({_pct_sv(payload.get('delta_pct'))})")
+    if rockets.get("value_sek") is not None:
+        lines.append(f"Raketkassan (hög risk): {_fmt_kr(rockets['value_sek'])} kr "
+                     f"({_kr_signed(rockets['value_sek'] - rockets['base_sek'])})")
     if payload.get("index_sek_pct") is not None:
         lines.append(f"Allt i S&P 500 hade varit {_fmt_kr(payload['base_sek'] * (1 + payload['index_sek_pct'] / 100))} kr.")
     lines.append("Papper — inga riktiga pengar. Ingen vinst är lovad.")
     return "\n".join(lines)
+
+
+def rocket_rows(taken: list[SignalRecord], marks: dict[int, dict | None], fx: pd.DataFrame, base_sek: float,
+                trades: list[dict], now: pd.Timestamp | None = None) -> dict:
+    """The rocket portfolio (app.rocket_portfolio, paper) as a kronor account:
+    each rocket a fixed slot of base_sek * WEIGHT, with buy/sell dates and
+    prices from `trades` (trade_rows of the same records). Same numbers as
+    rocket_portfolio_sek."""
+    now = now or pd.Timestamp.now(tz="UTC")
+    slot = round(base_sek * POT_WEIGHT, 2)
+    by_id = {t["id"]: t for t in trades}
+    rows = []
+    for r in taken:
+        p = evaluate_position(r, marks.get(r.id), fx, now)
+        value = None if p.sek_return_pct is None else round(slot * (1 + p.sek_return_pct / 100), 2)
+        if p.status == "pending":
+            value = slot
+        rows.append({**by_id.get(r.id, {"id": r.id, "symbol": r.symbol}), "status": p.status, "invested_sek": slot,
+                     "value_sek": value, "sek_return_pct": p.sek_return_pct, "entry_price": p.entry_price,
+                     "last_price": p.last_price, "sell_signaled": r.result == "OPEN" and bool(r.exit_signal_at)})
+    value, _ = rocket_portfolio_sek(taken, marks, fx, base_sek, now)
+    return {"base_sek": base_sek, "value_sek": value, "slot_sek": slot, "since": taken[0].timestamp[:10] if taken else None,
+            "rows": rows}

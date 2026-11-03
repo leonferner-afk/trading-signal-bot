@@ -214,6 +214,15 @@ def test_depot_notice_lists_orders_and_new_sales_in_kronor():
     assert "✅ Sålt AMD: +58 kr (+4,6 %)" in text
     assert "INTC" not in text and "TDOC" not in text          # sold before the last notice; not in the depot
     assert "Depå: 10 094 kr" in text and "+94 kr (+0,9 %)" in text and "10 050 kr" in text
+    rockets = {"base_sek": 10000.0, "value_sek": 10200.0, "rows": [
+        {"symbol": "REGN", "status": "pending", "invested_sek": 1000.0, "value_sek": 1000.0},
+        {"symbol": "CCL", "status": "closed", "invested_sek": 1000.0, "value_sek": 1219.0, "sek_return_pct": 21.9,
+         "sell_date": "2026-11-05"},
+        {"symbol": "TDOC", "status": "closed", "invested_sek": 1000.0, "value_sek": 900.0, "sell_date": "2026-11-01"}]}
+    with_rockets = depot_notice({**payload, "rockets": rockets}, "2026-11-05", "2026-11-04")
+    assert "🚀 RAKET KÖP REGN vid nästa öppning · 1 000 kr" in with_rockets
+    assert "🚀 Raket såld CCL: +219 kr (+21,9 %)" in with_rockets and "TDOC" not in with_rockets
+    assert "Raketkassan (hög risk): 10 200 kr (+200 kr)" in with_rockets
     quiet = depot_notice({**payload, "positions": []}, "2026-11-06", "2026-11-05")
     assert "Inga köp eller sälj idag." in quiet
 
@@ -229,3 +238,20 @@ def test_fund_part_can_hold_another_index_while_spy_stays_the_comparison():
     assert "hela 10 000 kr i S&P 500 hade varit 9 900 kr" in text
     # Unknown fund price: the part is reported missing, not guessed.
     assert hypothetical_value([], {}, None, index_pct=100.0, index_sek_pct=1.0, fund_symbol="QQQ").fx_missing == 1
+
+
+def test_rocket_rows_give_each_rocket_a_kronor_slot_matching_the_portfolio_value():
+    from app.hypothetical import rocket_portfolio_sek, rocket_rows
+
+    fx = _fx([("2026-09-29", 9.50)])
+    won = _record("CCL", "2026-09-30T20:00:00+00:00", result="WIN", return_pct=20.0,
+                  closed_at=dt.datetime(2026, 10, 20, 20, tzinfo=dt.timezone.utc))
+    won.id = 1
+    waiting = _record("REGN", "2026-11-03T06:00:00+00:00")
+    waiting.id = 2
+    trades = [{"id": 1, "symbol": "CCL", "buy_date": "2026-10-01", "sell_date": "2026-10-21"}, {"id": 2, "symbol": "REGN"}]
+    acct = rocket_rows([won, waiting], {2: None}, fx, 10000.0, trades)
+    ccl, regn = acct["rows"]
+    assert acct["slot_sek"] == 1000.0 and ccl["value_sek"] == 1200.0 and ccl["sell_date"] == "2026-10-21"
+    assert regn["status"] == "pending" and regn["value_sek"] == 1000.0
+    assert acct["value_sek"] == rocket_portfolio_sek([won, waiting], {2: None}, fx, 10000.0)[0] == 10200.0

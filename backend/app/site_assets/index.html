@@ -71,6 +71,7 @@ h2 { font-size: 1rem; margin: 0; }
 .row:first-child { border-top: 0; }
 .sym { font-weight: 700; font-size: 1rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .sub { font-size: .82rem; color: var(--muted); }
+.sub.up, small.up { color: var(--up); } .sub.down, small.down { color: var(--down); }
 .right { text-align: right; display: grid; gap: 1px; justify-items: end; }
 .right .main { font-weight: 600; }
 .tag { font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 6px;
@@ -169,6 +170,20 @@ details[open] summary::after { content: "Dölj"; }
   </section>
   <section class="card" id="view-orders" role="tabpanel" aria-labelledby="tab-orders" hidden>
     <div class="list" id="orders"></div>
+  </section>
+
+  <section class="card" id="rocketCard" aria-label="Raketkassan" hidden>
+    <div class="cardhead"><h2>🚀 Raketkassan</h2><span class="tag sell">Hög risk</span></div>
+    <div class="pad" style="padding-top:4px">
+      <div><span class="value-big" id="rocketValue" style="font-size:1.8rem">–</span></div>
+      <div class="stats">
+        <div class="stat"><span class="label" id="rocketSinceLabel">Sedan start</span><span class="v" id="rocketDelta">–</span></div>
+        <div class="stat"><span class="label">Insatt</span><span class="v" id="rocketBase">–</span></div>
+        <div class="stat"><span class="label">Lediga platser</span><span class="v" id="rocketFree">–</span></div>
+      </div>
+      <p class="note" style="margin:0">Separat papperskassa. Köper aktier som rusat efter en stark rapport, 1 000 kr per raket, högst 10 åt gången. Säljs 25 % under toppen eller efter 60 dagar. Inte bevisad: i testet snitt +8,5 % per affär och 56 % vinnare, men det kan vara slump.</p>
+    </div>
+    <div class="list" id="rocketList"></div>
   </section>
 
   <section class="card pad" aria-label="Utveckling">
@@ -369,12 +384,6 @@ function renderHoldings(s, L) {
   }
   for (const p of L.pending) out.push(row(esc(p.symbol), `Köps vid nästa öppning · senast ${usd(p.last_price)}`,
                                           esc(kr(p.invested_sek)), "väntar på köp", "", ' <span class="tag buy">Köps</span>' + KIND_TAG(p)));
-  if (s.rocket_paper_sek != null) {
-    const g = s.rocket_paper_sek - s.base_sek;
-    out.push('<div class="section-head">Raketportfölj (separat, på kul)</div>');
-    out.push(row("Raketportfölj", `Följer varje raketsignal · insatt ${kr(s.base_sek)}`, esc(kr(s.rocket_paper_sek)),
-                 `${skr(g)} · ${pct(g / s.base_sek * 100)}`, tone(g)));
-  }
   $("holdings").innerHTML = out.join("") || '<div class="empty">Inga innehav ännu.</div>';
 }
 
@@ -416,6 +425,30 @@ function renderOrders(s, L) {
     '<div class="empty">Inga order just nu. Nya köp och sälj dyker upp här morgonen efter botens signal och genomförs vid nästa börsöppning.</div>';
 }
 
+function renderRockets(s) {
+  const R = s.rockets;
+  $("rocketCard").hidden = !R || !(R.rows || []).length;
+  if ($("rocketCard").hidden) return;
+  const g = R.value_sek - R.base_sek;
+  $("rocketValue").textContent = kr(R.value_sek);
+  $("rocketSinceLabel").textContent = `Sedan ${day(R.since)}`;
+  $("rocketDelta").textContent = `${skr(g)} · ${pct(g / R.base_sek * 100)}`;
+  $("rocketDelta").className = "v " + tone(g);
+  $("rocketBase").textContent = kr(R.base_sek);
+  const busy = R.rows.filter(r => r.status !== "closed").length;
+  $("rocketFree").textContent = `${Math.max(0, Math.round(R.base_sek / R.slot_sek) - busy)} av ${Math.round(R.base_sek / R.slot_sek)}`;
+  const order = { pending: 0, open: 1, closed: 2 };
+  const rows = [...R.rows].sort((a, b) => order[a.status] - order[b.status] || (b.sell_date || b.buy_date || "").localeCompare(a.sell_date || a.buy_date || ""));
+  $("rocketList").innerHTML = rows.map(r => {
+    const gain = r.value_sek != null ? r.value_sek - r.invested_sek : null;
+    if (r.status === "pending") return row(esc(r.symbol), `Signal ${day(r.signal_date)} · köps vid nästa öppning`, esc(kr(r.invested_sek)), "väntar på köp", "", ' <span class="tag buy">Köps</span>');
+    if (r.status === "closed") return row(esc(r.symbol), `${day(r.buy_date)} → ${day(r.sell_date)} · köpt för ${kr(r.invested_sek)}, såld för ${kr(r.value_sek)}`,
+      esc(skr(gain)), pct(r.sek_return_pct), tone(gain), ' <span class="tag">Såld</span>');
+    return row(esc(r.symbol), `Köpt ${day(r.buy_date)} för ${kr(r.invested_sek)} · ${usd(r.entry_price)} → ${usd(r.last_price)}`,
+      esc(kr(r.value_sek)), `${skr(gain)} · ${pct(r.sek_return_pct)}`, tone(gain), r.sell_signaled ? ' <span class="tag sell">Säljs vid öppning</span>' : "");
+  }).join("");
+}
+
 function render(s) {
   $("app").classList.remove("loading");
   const ageDays = (Date.now() - Date.parse(String(s.updated).replace(" UTC", "Z").replace(" ", "T"))) / 864e5;
@@ -437,7 +470,7 @@ function render(s) {
   $("splitlegend").innerHTML = (indexPct ? `<span><i style="background:var(--muted)"></i>${esc(s.fund_name || "S&P 500-fond")} ${Math.round(indexPct)} %</span>` : "") +
                                (botPct > 0 ? `<span><i style="background:var(--accent)"></i>Aktier via boten ${Math.round(botPct)} %</span>` : "");
   const L = ledger(s);
-  renderFeed(s, L); renderPL(L); renderHoldings(s, L); renderTrades(s, L); renderOrders(s, L);
+  renderFeed(s, L); renderPL(L); renderHoldings(s, L); renderTrades(s, L); renderOrders(s, L); renderRockets(s);
   lastHistory = Array.isArray(s.history) ? s.history : [];
   drawChart();
   $("report").innerHTML = renderReport(s.report_md);

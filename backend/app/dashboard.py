@@ -258,7 +258,7 @@ def status_payload(h: dict, report_md: str, history: list[dict], updated: str) -
         "fund_symbol": h.get("fund_symbol") or "SPY", "fund_name": _fund_name(h), "fund_sek_pct": _fund_pct(h),
         "rotation_stake_sek": round(rot_stake, 2), "rotation_value_sek": round(rot_value, 2),
         "spy_all_sek": round(base * (1 + spy_pct / 100), 2) if spy_pct is not None else None,
-        "rocket_paper_sek": h.get("rocket_paper_sek"),
+        "rocket_paper_sek": h.get("rocket_paper_sek"), "rockets": h.get("rockets"),
         "positions": [{"kind": "rotation", **p} for p in h.get("positions", [])],
         "trades": h.get("trades", []),
         # Change since the previous run's point (the curve's last step), None until there are two.

@@ -102,7 +102,7 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
     open_rockets = [r for r in rocket_taken if r.result == "OPEN"]
     fund_symbol = (os.environ.get("HYPOTHETICAL_FUND") or "SPY").upper()
     with StockClient() as client:
-        client.prefetch(sorted({r.symbol for r in records + pot_records + open_rockets} | {"SPY", fund_symbol}) + [FX_SYMBOL],
+        client.prefetch(sorted({r.symbol for r in records + pot_records + rocket_taken} | {"SPY", fund_symbol}) + [FX_SYMBOL],
                         "1d", limit=400)
         rocket_marks = {r.id: current_mark(client, r) for r in open_rockets}
         marks = {r.symbol: current_mark(client, r) for r in open_records}
@@ -117,7 +117,7 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
             if not before.empty:
                 base_closes[r.symbol] = float(before["close"].iloc[-1])
         trade_bars = {}
-        for symbol in {r.symbol for r in records + pot_records}:
+        for symbol in {r.symbol for r in records + pot_records + rocket_taken}:
             try:
                 trade_bars[symbol] = client.get_klines(symbol, "1d", limit=400)
             except DataUnavailable:
@@ -164,7 +164,12 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
     since = args.since[:10] if args.since else (records or pot_records)[0].timestamp[:10]
     message = format_hypothetical_message(result, since)
     rocket_sek = None
+    rockets = None
     if rocket_taken:
+        from app.hypothetical import rocket_rows
+
+        rockets = rocket_rows(rocket_taken, rocket_marks, fx, args.base_sek,
+                              trade_rows(rocket_taken, "raket", trade_bars, lambda r: rocket_marks.get(r.id)))
         from app.hypothetical import _fmt_kr, rocket_portfolio_sek
 
         rocket_sek, rocket_missing = rocket_portfolio_sek(rocket_taken, rocket_marks, fx, args.base_sek)
@@ -179,7 +184,7 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
         payload = {
             "base_sek": result.base_sek, "total_sek": result.total_sek, "delta_sek": result.delta_sek,
             "delta_pct": result.delta_pct, "since": since, "fx_missing": result.fx_missing, "message": message,
-            "rocket_paper_sek": rocket_sek,
+            "rocket_paper_sek": rocket_sek, "rockets": rockets,
             "pot_pct": round(pot_pct, 2), "index_pct": result.index_pct, "index_sek_pct": result.index_sek_pct,
             "fund_symbol": result.fund_symbol, "fund_sek_pct": result.fund_sek_pct,
             "positions": [
