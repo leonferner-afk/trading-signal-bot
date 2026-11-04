@@ -56,6 +56,15 @@ def cmd_bots(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_push_test(args: argparse.Namespace) -> int:
+    """Sends one test notification to the home-screen app (WEB_PUSH)."""
+    from app.notify import web_push
+
+    ok = web_push.send("Min depå", "Testnotis — notiserna från boten fungerar. (Papper, inga riktiga pengar.)")
+    print("Test notification sent." if ok else "Test notification NOT sent — see the log above.")
+    return 0 if ok else 1
+
+
 def cmd_dashboard(args: argparse.Namespace) -> int:
     """Rebuilds the public status page (GitHub Pages) from the run's files."""
     from pathlib import Path
@@ -209,12 +218,13 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
 
 
 def _notify_depot(payload: dict, session: str, marker_path: str) -> None:
-    """Sends the kronor depot message to Telegram once per new trading day;
+    """Sends the kronor depot message once per new trading day — to the
+    home-screen app (web push) and/or Telegram, whichever is set up;
     `marker_path` remembers the last day sent, so re-runs don't repeat it."""
     from pathlib import Path
 
     from app.hypothetical import depot_notice
-    from app.notify import telegram_client
+    from app.notify import telegram_client, web_push
 
     marker = Path(marker_path)
     previous = marker.read_text(encoding="utf-8").strip() if marker.exists() else None
@@ -223,7 +233,12 @@ def _notify_depot(payload: dict, session: str, marker_path: str) -> None:
         return
     text = depot_notice(payload, session, previous)
     print(text)
-    if telegram_client.send_message(text):
+    sent = telegram_client.send_message(text) if telegram_client.is_configured() else False
+    if web_push.is_configured():
+        # The first line is the title; the rest fits a phone notification.
+        title, _, body = text.partition("\n")
+        sent = web_push.send(title.replace("📱 ", ""), body) or sent
+    if sent:
         marker.write_text(session, encoding="utf-8")
 
 
@@ -254,6 +269,9 @@ def main(argv: list[str] | None = None) -> int:
     bots = sub.add_parser("bots", help="backtest the whole-market ETF bot candidates")
     bots.add_argument("--out", default="", help="optional path to write the Markdown report")
     bots.set_defaults(func=cmd_bots)
+
+    push_test = sub.add_parser("push-test", help="send one test notification to the home-screen app")
+    push_test.set_defaults(func=cmd_push_test)
 
     dashboard = sub.add_parser("dashboard", help="rebuild the public status page from the bot-state files")
     dashboard.add_argument("--state", required=True, help="checked-out bot-state directory")

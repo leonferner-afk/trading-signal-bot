@@ -107,6 +107,8 @@ jobs:
           # The owner's kronor message (buys, sells, depot value) — once per new trading day.
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # ...and/or as a notification in the home-screen app (the app's "notis-kod").
+          WEB_PUSH: ${{ secrets.WEB_PUSH }}
         run: >-
           python -m app.cli hypothetical --base-sek "${HYPOTHETICAL_BASE_SEK:-10000}" --since "$HYPOTHETICAL_SINCE"
           --out "$GITHUB_WORKSPACE/state/hypothetical.json" --notify-marker "$GITHUB_WORKSPACE/state/depot_notified.txt"

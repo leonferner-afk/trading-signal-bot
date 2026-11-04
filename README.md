@@ -27,6 +27,9 @@ och när du ska sälja**. Den handlar **aldrig** själv — du lägger orderna.
    **Helt live (valfritt):** tryck *Koppla live-kurser* i appen och klistra in en gratis API-nyckel från
    [finnhub.io](https://finnhub.io). Nyckeln sparas bara i webbläsaren på telefonen (aldrig i repot); appen hämtar då
    kurser var 20:e sekund och räknar om depån och raketkassan (valutakursen från senaste publicering).
+   **Notiser i appen (valfritt):** öppna appen från hemskärmen (iOS 16.4+), tryck *Slå på notiser*, kopiera
+   notis-koden och lägg in den som Actions-secret `WEB_PUSH`. Morgonens depåmeddelande skickas då som notis
+   (`app/notify/web_push.py`, egen VAPID-nyckel som skapas i appen). Testa med workflowet *Test app notification*.
 
 Skydd som alltid gäller:
 

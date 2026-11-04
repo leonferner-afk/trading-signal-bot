@@ -125,6 +125,11 @@ details[open] summary::after { content: "Dölj"; }
 .keyform { display: flex; gap: 8px; width: 100%; }
 .keyform input { flex: 1; min-width: 0; font: inherit; font-size: 16px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
 .keyform button, .linkbtn { font: inherit; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 4px 0; cursor: pointer; }
+.notify { padding: 14px 16px; display: grid; gap: 10px; }
+.notify textarea { width: 100%; min-height: 84px; font: 12px ui-monospace, Menlo, monospace; padding: 8px; border-radius: 10px;
+                   border: 1px solid var(--line); background: var(--soft); color: var(--fg); resize: vertical; }
+.notify ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: .92rem; }
+.btn { font: inherit; font-weight: 700; color: #fff; background: var(--accent); border: 0; padding: 10px 14px; border-radius: 10px; cursor: pointer; justify-self: start; }
 .refresh { font: inherit; font-size: .88rem; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 4px 0; cursor: pointer; }
 </style>
 </head>
@@ -209,6 +214,24 @@ details[open] summary::after { content: "Dölj"; }
   <section class="card pad" aria-label="Utveckling">
     <h2>Utveckling sedan start</h2>
     <div id="chart"><p class="muted">Kurvan fylls på för varje handelsdag.</p></div>
+  </section>
+
+  <section class="card" aria-label="Notiser">
+    <div class="cardhead"><h2>🔔 Notiser i appen</h2><span class="muted" id="notifyState"></span></div>
+    <div class="notify">
+      <p class="note" style="margin:0" id="notifyIntro">Få morgonens köp, sälj och depåvärde som notis direkt från appen.</p>
+      <button class="btn" id="notifyOn" type="button">Slå på notiser</button>
+      <div id="notifyCodeBox" hidden>
+        <ol>
+          <li>Tryck <strong>Kopiera notis-kod</strong>.</li>
+          <li>Öppna <a id="secretLink" href="https://github.com/leonferner-afk/trading-signal-bot/settings/secrets/actions/new" target="_blank" rel="noopener">GitHub → New secret</a>.</li>
+          <li><strong>Name:</strong> <code>WEB_PUSH</code> · <strong>Secret:</strong> klistra in koden · <strong>Add secret</strong>.</li>
+        </ol>
+        <textarea id="notifyCode" readonly aria-label="Notis-kod"></textarea>
+        <button class="btn" id="notifyCopy" type="button">Kopiera notis-kod</button>
+        <p class="note" style="margin:0">Koden är bara till för GitHub, så dela den inte med någon annan. Den ger bara rätt att skicka notiser till den här appen.</p>
+      </div>
+    </div>
   </section>
 
   <section class="card">
@@ -641,6 +664,49 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 // The bot republishes about every 15 minutes while the US market is open; check once a minute while the app is on screen.
 setInterval(() => { if (document.visibilityState === "visible") load(); }, 60000);
 load().then(pollQuotes);
+
+// ---- notifications: the app makes its own VAPID key pair + push subscription and shows them as one
+// "notis-kod" for the WEB_PUSH secret, so no key ever sits in the public repo. ----
+const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+const inStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+function showCode(code) {
+  $("notifyCode").value = code; $("notifyCodeBox").hidden = false;
+  $("notifyOn").textContent = "Skapa ny notis-kod";
+}
+try { const saved = localStorage.getItem("notify-code"); if (saved) { showCode(saved); $("notifyState").textContent = "På i den här appen"; } } catch (e) {}
+if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+  $("notifyOn").hidden = true;
+  $("notifyIntro").textContent = isIOS && !inStandalone
+    ? "Öppna appen från hemskärmen (inte i Safari) för att kunna slå på notiser."
+    : "Den här webbläsaren stöder inte notiser från webbappar. På iPhone krävs iOS 16.4 eller senare och att appen öppnas från hemskärmen.";
+}
+$("notifyOn").addEventListener("click", async () => {
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") { $("notifyState").textContent = "Notiser nekade, ändra i Inställningar"; return; }
+    const reg = await navigator.serviceWorker.register("sw.js");
+    await navigator.serviceWorker.ready;
+    const old = await reg.pushManager.getSubscription();
+    if (old) await old.unsubscribe();
+    const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
+    const pub = await crypto.subtle.exportKey("raw", pair.publicKey);
+    const jwk = await crypto.subtle.exportKey("jwk", pair.privateKey);
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: new Uint8Array(pub) });
+    const code = btoa(JSON.stringify({ sub: sub.toJSON(), d: jwk.d, pub: b64u(pub) }));
+    try { localStorage.setItem("notify-code", code); } catch (e) {}
+    showCode(code);
+    $("notifyState").textContent = "På i den här appen";
+    reg.showNotification("Min depå", { body: "Notiserna är på. Lägg in notis-koden på GitHub så kan boten skicka hit.", icon: "icon-192.png" });
+  } catch (e) {
+    $("notifyState").textContent = "Kunde inte slå på notiser";
+    $("notifyIntro").textContent = "Något gick fel: " + (e && e.message ? e.message : e);
+  }
+});
+$("notifyCopy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("notifyCode").value); $("notifyCopy").textContent = "Kopierad ✓"; }
+  catch (e) { $("notifyCode").select(); $("notifyCopy").textContent = "Markerad, kopiera manuellt"; }
+});
 
 // ---- home-screen tip (only in a normal browser tab, until dismissed) -----------------------
 const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
