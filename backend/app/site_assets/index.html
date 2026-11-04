@@ -33,6 +33,7 @@
   --accent: #4cc3a9; --up: #45c37e; --down: #f0715f; --buy: #45c37e; --sell: #f0715f; color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { background: var(--bg); -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.45 var(--font); font-variant-numeric: tabular-nums;
@@ -115,6 +116,15 @@ details[open] summary::after { content: "Dölj"; }
 .pl .box .v { font-size: 1.05rem; font-weight: 600; }
 .hint { background: var(--soft); border-radius: 12px; padding: 10px 14px; font-size: .88rem; color: var(--muted); display: flex; gap: 10px; justify-content: space-between; align-items: center; }
 .hint button { font: inherit; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 4px; cursor: pointer; }
+.liverow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: .88rem; color: var(--muted); }
+.livechip { font-size: .7rem; font-weight: 800; letter-spacing: .08em; color: #fff; background: var(--up); padding: 2px 8px; border-radius: 6px; }
+.livechip.off { background: var(--muted); }
+.livechip.on::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #fff; margin-right: 6px; vertical-align: 1px; animation: pulse 1.6s infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .livechip.on::before { animation: none; } }
+.keyform { display: flex; gap: 8px; width: 100%; }
+.keyform input { flex: 1; min-width: 0; font: inherit; font-size: 16px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+.keyform button, .linkbtn { font: inherit; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 4px 0; cursor: pointer; }
 .refresh { font: inherit; font-size: .88rem; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 4px 0; cursor: pointer; }
 </style>
 </head>
@@ -125,6 +135,16 @@ details[open] summary::after { content: "Dölj"; }
     <div class="left"><h1>Min depå</h1><span class="paper">Papper</span><span class="paper stale" id="stale" hidden>Inaktuell</span></div>
     <div class="muted"><span id="updated">Hämtar …</span> · <button class="refresh" id="refresh" type="button">Uppdatera</button></div>
   </header>
+
+  <div class="liverow" id="liveRow">
+    <span class="livechip off" id="liveChip">LIVE AV</span>
+    <span id="liveText">Var 15:e minut under börstid.</span>
+    <button class="linkbtn" id="liveSetup" type="button">Koppla live-kurser</button>
+    <form class="keyform" id="keyForm" hidden>
+      <input id="keyInput" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Din Finnhub API-nyckel" aria-label="Finnhub API-nyckel">
+      <button type="submit">Spara</button>
+    </form>
+  </div>
 
   <div class="hint" id="hint" hidden>
     <span>Tips: lägg appen på hemskärmen. iPhone: Dela → Lägg till på hemskärmen. Android: menyn ⋮ → Lägg till på startskärmen.</span>
@@ -500,20 +520,127 @@ async function load() {
     const res = await fetch("status.json?t=" + Date.now(), { cache: "no-store" });
     if (!res.ok) throw new Error("HTTP " + res.status);
     const s = await res.json();
-    render(s);
+    baseStatus = s;
+    renderAll();
     try { localStorage.setItem(CACHE_KEY, JSON.stringify(s)); } catch (e) {}
   } catch (e) {
     let cached = null;
     try { cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null"); } catch (err) {}
-    if (cached) { render(cached); $("updated").textContent = `Uppdaterad ${localTime(cached.updated)} · offline, visar sparad`; }
+    if (cached) { baseStatus = cached; renderAll(); $("updated").textContent = `Uppdaterad ${localTime(cached.updated)} · offline, visar sparad`; }
     else unavailable("Datan kunde inte hämtas just nu. Kontrollera nätet och tryck Uppdatera.");
   } finally { loading = false; }
 }
-$("refresh").addEventListener("click", load);
+$("refresh").addEventListener("click", () => { load(); pollQuotes(); });
+
+// ---- live quotes: Finnhub, polled from this device; the key is stored only here (localStorage) ----
+const KEY_STORE = "finnhub-key";
+let liveKey = null, baseStatus = null, liveQuotes = {}, liveAt = null, liveError = null, polling = false;
+try { liveKey = localStorage.getItem(KEY_STORE); } catch (e) {}
+
+function liveSymbols(s) {
+  const out = new Set();
+  if ((s.index_pct || 0) > 0 && s.fund_symbol && s.fund_last_price) out.add(s.fund_symbol);
+  for (const p of s.positions || []) if (p.status === "open" && (p.invested_sek || 0) > 0 && p.last_price) out.add(p.symbol);
+  for (const r of (s.rockets && s.rockets.rows) || []) if (r.status === "open" && r.last_price) out.add(r.symbol);
+  return [...out].slice(0, 15);
+}
+
+// Scales each holding's published kronor value by live price / the price it was valued at.
+// The USD/SEK rate stays at the last published value (it moves far less within a day).
+function applyLive(s) {
+  const t = JSON.parse(JSON.stringify(s));
+  const q = sym => liveQuotes[sym];
+  let diff = 0;
+  const stake = t.base_sek * (t.index_pct || 0) / 100;
+  const fp = t.fund_sek_pct !== undefined ? t.fund_sek_pct : t.index_sek_pct;
+  if (stake > 0 && fp != null && t.fund_last_price && q(t.fund_symbol)) {
+    const v = stake * (1 + fp / 100), nv = v * q(t.fund_symbol) / t.fund_last_price;
+    diff += nv - v; t.fund_sek_pct = (nv / stake - 1) * 100;
+  }
+  for (const p of t.positions || []) {
+    if (p.status !== "open" || !(p.invested_sek > 0) || p.value_sek == null || !p.last_price || !q(p.symbol)) continue;
+    const nv = p.value_sek * q(p.symbol) / p.last_price;
+    diff += nv - p.value_sek; p.value_sek = nv; p.last_price = q(p.symbol); p.sek_return_pct = (nv / p.invested_sek - 1) * 100;
+  }
+  t.total_sek += diff; t.delta_sek += diff; t.delta_pct = t.delta_sek / t.base_sek * 100;
+  if (t.today_sek != null) t.today_sek += diff;
+  if (t.rockets) {
+    let rd = 0;
+    for (const r of t.rockets.rows) {
+      if (r.status !== "open" || r.value_sek == null || !r.last_price || !q(r.symbol)) continue;
+      const nv = r.value_sek * q(r.symbol) / r.last_price;
+      rd += nv - r.value_sek; r.value_sek = nv; r.last_price = q(r.symbol); r.sek_return_pct = (nv / r.invested_sek - 1) * 100;
+    }
+    t.rockets.value_sek += rd;
+  }
+  return t;
+}
+
+function renderAll() {
+  if (!baseStatus) return;
+  const live = liveKey && liveAt && Object.keys(liveQuotes).length;
+  render(live ? applyLive(baseStatus) : baseStatus);
+  const chip = $("liveChip");
+  if (!liveKey) {
+    chip.className = "livechip off"; chip.textContent = "LIVE AV";
+    $("liveText").textContent = "Var 15:e minut under börstid.";
+    $("liveSetup").textContent = "Koppla live-kurser";
+  } else if (liveError) {
+    chip.className = "livechip off"; chip.textContent = "LIVE";
+    $("liveText").textContent = liveError;
+    $("liveSetup").textContent = "Byt nyckel";
+  } else {
+    const fresh = liveAt && Date.now() - liveAt < 90000;
+    chip.className = "livechip " + (fresh ? "on" : "off"); chip.textContent = "LIVE";
+    $("liveText").textContent = liveAt ? `Kurser ${new Date(liveAt).toLocaleTimeString("sv-SE")} · valutakurs från ${localTime(baseStatus.updated)}` : "Hämtar kurser …";
+    $("liveSetup").textContent = "Koppla bort";
+  }
+}
+
+async function pollQuotes() {
+  if (!liveKey || !baseStatus || polling || document.visibilityState !== "visible") return;
+  polling = true;
+  let got = 0;
+  try {
+    for (const sym of liveSymbols(baseStatus)) {
+      const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(sym)}&token=${encodeURIComponent(liveKey)}`, { cache: "no-store" });
+      if (res.status === 401 || res.status === 403) { liveError = "Nyckeln fungerar inte. Kontrollera den på finnhub.io."; break; }
+      if (res.status === 429) { liveError = "För många anrop just nu, försöker igen strax."; break; }
+      if (!res.ok) continue;
+      const j = await res.json();
+      if (j && j.c > 0) { liveQuotes[sym] = j.c; got++; }
+    }
+    if (got) { liveAt = Date.now(); liveError = null; }
+  } catch (e) {
+    liveError = "Kunde inte nå kurstjänsten (nätet?).";
+  } finally { polling = false; renderAll(); }
+}
+// Finnhub's free tier allows 60 calls a minute: one call per symbol, at most 15 symbols, every 20 s.
+setInterval(pollQuotes, 20000);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") pollQuotes(); });
+
+$("liveSetup").addEventListener("click", () => {
+  if (liveKey && !liveError) {
+    liveKey = null; liveQuotes = {}; liveAt = null;
+    try { localStorage.removeItem(KEY_STORE); } catch (e) {}
+    renderAll(); return;
+  }
+  $("keyForm").hidden = !$("keyForm").hidden;
+  if (!$("keyForm").hidden) $("keyInput").focus();
+});
+$("keyForm").addEventListener("submit", ev => {
+  ev.preventDefault();
+  const k = $("keyInput").value.trim();
+  if (!k) return;
+  liveKey = k; liveError = null; liveQuotes = {}; liveAt = null;
+  try { localStorage.setItem(KEY_STORE, k); } catch (e) {}
+  $("keyInput").value = ""; $("keyForm").hidden = true;
+  renderAll(); pollQuotes();
+});
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") load(); });
 // The bot republishes about every 15 minutes while the US market is open; check once a minute while the app is on screen.
 setInterval(() => { if (document.visibilityState === "visible") load(); }, 60000);
-load();
+load().then(pollQuotes);
 
 // ---- home-screen tip (only in a normal browser tab, until dismissed) -----------------------
 const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;

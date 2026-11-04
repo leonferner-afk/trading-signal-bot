@@ -188,6 +188,8 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
             "rocket_paper_sek": rocket_sek, "rockets": rockets,
             "pot_pct": round(pot_pct, 2), "index_pct": result.index_pct, "index_sek_pct": result.index_sek_pct,
             "fund_symbol": result.fund_symbol, "fund_sek_pct": result.fund_sek_pct,
+            # The fund price its value is computed at — lets the app revalue it with a live quote.
+            "fund_last_price": None if fund is None or fund.empty else float(fund["close"].iloc[-1]),
             "positions": [
                 {"symbol": p.symbol, "kind": p.kind, "status": p.status, "usd_return_pct": p.usd_return_pct,
                  "sek_return_pct": p.sek_return_pct, "id": p.record_id, "entry_price": p.entry_price,

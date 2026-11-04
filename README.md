@@ -24,6 +24,9 @@ och när du ska sälja**. Den handlar **aldrig** själv — du lägger orderna.
    bara papperssiffror. Under amerikansk börstid räknar workflowet *Live update* (`live.yml`) om depån och raketkassan
    till senaste kurs ungefär var 15:e minut och publicerar appen igen. Det gör inga beslut och skickar inga notiser;
    besluten tas bara av den dagliga körningen, och bara på stängda börsdagar.
+   **Helt live (valfritt):** tryck *Koppla live-kurser* i appen och klistra in en gratis API-nyckel från
+   [finnhub.io](https://finnhub.io). Nyckeln sparas bara i webbläsaren på telefonen (aldrig i repot); appen hämtar då
+   kurser var 20:e sekund och räknar om depån och raketkassan (valutakursen från senaste publicering).
 
 Skydd som alltid gäller:
 
