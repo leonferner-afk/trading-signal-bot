@@ -21,7 +21,9 @@ och när du ska sälja**. Den handlar **aldrig** själv — du lägger orderna.
    en kurva mot "allt i S&P 500" och dagens rapport, och läser `status.json` varje gång den öppnas. `enkel.html` är
    samma sak utan JavaScript (`app/dashboard.py`, historiken i `history.json` på `bot-state`). Kräver att GitHub Pages
    är påslaget en gång: Settings → Pages → Source: **GitHub Actions**. Sidan är offentlig, precis som repot, och visar
-   bara papperssiffror.
+   bara papperssiffror. Under amerikansk börstid räknar workflowet *Live update* (`live.yml`) om depån och raketkassan
+   till senaste kurs ungefär var 15:e minut och publicerar appen igen. Det gör inga beslut och skickar inga notiser;
+   besluten tas bara av den dagliga körningen, och bara på stängda börsdagar.
 
 Skydd som alltid gäller:
 

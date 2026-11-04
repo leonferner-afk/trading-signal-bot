@@ -131,6 +131,10 @@ class StockClient:
     max_retries: int = settings.max_retries
     backoff: float = settings.retry_backoff_seconds
     min_interval: float = settings.min_request_interval_seconds
+    # Daily (and longer) bars of a session that hasn't closed yet are dropped
+    # unless asked for: decisions must only see finished sessions. The live
+    # tracker sets this to value holdings at the latest intraday price.
+    include_partial: bool = False
     _cache: dict[tuple[str, str], tuple[float, pd.DataFrame]] = field(default_factory=dict, init=False, repr=False)
     _last_request_at: float = field(default=0.0, init=False, repr=False)
 
@@ -190,21 +194,31 @@ class StockClient:
         period = _period_for(interval, limit)
         cached = self._cache.get((symbol, interval))
         if cached and cached[0] >= _period_years(period):
-            return cached[1].tail(limit)
+            return self._finished(cached[1].tail(limit), interval)
 
         errors: list[str] = []
         try:
             frame = self._fetch_yfinance(symbol, interval, limit, period)
             self._cache[(symbol, interval)] = (_period_years(period), frame)
-            return frame
+            return self._finished(frame, interval)
         except DataUnavailable as exc:
             errors.append(f"yfinance: {exc}")
         if interval == "1d" and settings.twelvedata_api_key:
             try:
-                return _fetch_twelvedata_daily(symbol, limit)
+                return self._finished(_fetch_twelvedata_daily(symbol, limit), interval)
             except Exception as exc:
                 errors.append(f"twelvedata: {exc}")
         raise DataUnavailable(f"no data for {symbol} {interval} — " + "; ".join(errors))
+
+    def _finished(self, frame: pd.DataFrame, interval: str) -> pd.DataFrame:
+        """Drops a daily-or-longer bar whose session hasn't closed yet (a run
+        during US trading hours), unless `include_partial`."""
+        if self.include_partial or interval in _INTRADAY_MINUTES or frame.empty:
+            return frame
+        done = frame[frame["close_time"] <= pd.Timestamp.now(tz="UTC")]
+        if len(done) < len(frame):
+            logger.info("Ignoring %d unfinished bar(s) (session still open)", len(frame) - len(done))
+        return done
 
     def _fetch_yfinance(self, symbol: str, interval: str, limit: int, period: str) -> pd.DataFrame:
         last_error: Exception | None = None

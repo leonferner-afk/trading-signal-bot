@@ -1,0 +1,89 @@
+name: Live update
+
+# During US trading hours: revalue the owner's paper depot and rocket kassa at
+# the latest price and republish the app (GitHub Pages) about every 15
+# minutes. Read-only for the bot: no scan, no signals, no journal changes and
+# no Telegram — the daily run alone makes decisions, on finished sessions.
+on:
+  schedule:
+    # Every 15 min, 13:00–21:59 UTC Mon–Fri; the step below skips runs
+    # outside 09:30–16:15 New York time (covers both DST regimes, holidays
+    # just revalue at the last close).
+    - cron: "*/15 13-21 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: bot-state
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+    steps:
+      - name: Is the US market open?
+        id: hours
+        run: |
+          now=$(TZ=America/New_York date +%H%M); dow=$(TZ=America/New_York date +%u)
+          if [ "$dow" -le 5 ] && [ "$now" -ge 0930 ] && [ "$now" -le 1615 ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "open=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "open=false" >> "$GITHUB_OUTPUT"; echo "Market closed ($now New York) — nothing to do."
+          fi
+      - if: steps.hours.outputs.open == 'true'
+        uses: actions/checkout@v5
+      - if: steps.hours.outputs.open == 'true'
+        uses: actions/checkout@v5
+        with:
+          ref: bot-state
+          path: state
+      - if: steps.hours.outputs.open == 'true'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - if: steps.hours.outputs.open == 'true'
+        run: pip install -r backend/requirements.txt
+      - name: Revalue at the latest price
+        if: steps.hours.outputs.open == 'true'
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+          # A copy: the live revaluation must never write to the bot's journal.
+          DB_PATH: /tmp/live.db
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+          # Same tracker settings as daily.yml.
+          HYPOTHETICAL_BASE_SEK: ${{ vars.HYPOTHETICAL_BASE_SEK }}
+          HYPOTHETICAL_SINCE: ${{ vars.HYPOTHETICAL_SINCE || '2026-11-02T21:00:00+00:00' }}
+          HYPOTHETICAL_FUND: ${{ vars.HYPOTHETICAL_FUND || 'QQQ' }}
+          HYPOTHETICAL_FUND_PCT: ${{ vars.HYPOTHETICAL_FUND_PCT || '100' }}
+          BOT_SHARE_PCT: ${{ vars.BOT_SHARE_PCT || '100' }}
+          ROCKET_POT_PCT: ${{ vars.ROCKET_POT_PCT || '0' }}
+        run: |
+          cp "$GITHUB_WORKSPACE/state/tradingbot.db" /tmp/live.db
+          python -m app.cli hypothetical --live --base-sek "${HYPOTHETICAL_BASE_SEK:-10000}" --since "$HYPOTHETICAL_SINCE" \
+            --out "$GITHUB_WORKSPACE/state/hypothetical.json"
+          python -m app.cli dashboard --state "$GITHUB_WORKSPACE/state" --out "$GITHUB_WORKSPACE/state/site"
+      - name: Save
+        if: steps.hours.outputs.open == 'true'
+        working-directory: state
+        run: |
+          git config user.name "tradingbot"
+          git config user.email "tradingbot@users.noreply.github.com"
+          git add hypothetical.json history.json site
+          git diff --cached --quiet || git commit -q -m "Live $(date -u +'%F %H:%M')"
+          git push -q origin HEAD:bot-state
+      - if: steps.hours.outputs.open == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: state/site
+      - if: steps.hours.outputs.open == 'true'
+        uses: actions/deploy-pages@v4

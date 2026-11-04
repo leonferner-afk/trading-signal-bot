@@ -449,11 +449,19 @@ function renderRockets(s) {
   }).join("");
 }
 
+// "2026-11-04 15:45 UTC" -> "idag 16:45" / "4 nov 16:45" in the viewer's own time zone.
+function localTime(updated) {
+  const t = new Date(String(updated).replace(" UTC", "Z").replace(" ", "T"));
+  if (isNaN(t)) return String(updated);
+  const hm = t.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
+  return t.toDateString() === new Date().toDateString() ? `idag ${hm}` : `${t.getDate()} ${MONTHS[t.getMonth()]} ${hm}`;
+}
+
 function render(s) {
   $("app").classList.remove("loading");
   const ageDays = (Date.now() - Date.parse(String(s.updated).replace(" UTC", "Z").replace(" ", "T"))) / 864e5;
   $("stale").hidden = !(ageDays > 4);
-  $("updated").textContent = `Uppdaterad ${s.updated}`;
+  $("updated").textContent = `Uppdaterad ${localTime(s.updated)}`;
   $("valueLabel").textContent = `Depåvärde · start ${day(s.since)}`;
   $("total").textContent = kr(s.total_sek);
   const today = $("today");
@@ -497,12 +505,14 @@ async function load() {
   } catch (e) {
     let cached = null;
     try { cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null"); } catch (err) {}
-    if (cached) { render(cached); $("updated").textContent = `Uppdaterad ${cached.updated} · offline, visar sparad`; }
+    if (cached) { render(cached); $("updated").textContent = `Uppdaterad ${localTime(cached.updated)} · offline, visar sparad`; }
     else unavailable("Datan kunde inte hämtas just nu. Kontrollera nätet och tryck Uppdatera.");
   } finally { loading = false; }
 }
 $("refresh").addEventListener("click", load);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") load(); });
+// The bot republishes about every 15 minutes while the US market is open; check once a minute while the app is on screen.
+setInterval(() => { if (document.visibilityState === "visible") load(); }, 60000);
 load();
 
 // ---- home-screen tip (only in a normal browser tab, until dismissed) -----------------------

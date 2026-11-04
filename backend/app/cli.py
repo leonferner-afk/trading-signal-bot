@@ -101,7 +101,8 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
     open_pot = [r for r in pot_records if r.result == "OPEN"]
     open_rockets = [r for r in rocket_taken if r.result == "OPEN"]
     fund_symbol = (os.environ.get("HYPOTHETICAL_FUND") or "SPY").upper()
-    with StockClient() as client:
+    # --live: during US trading hours, value holdings at the latest intraday price.
+    with StockClient(include_partial=args.live) as client:
         client.prefetch(sorted({r.symbol for r in records + pot_records + rocket_taken} | {"SPY", fund_symbol}) + [FX_SYMBOL],
                         "1d", limit=400)
         rocket_marks = {r.id: current_mark(client, r) for r in open_rockets}
@@ -200,7 +201,7 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
         }
         with open(args.out, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, indent=2)
-        if args.notify_marker and spy is not None and not spy.empty:
+        if args.notify_marker and not args.live and spy is not None and not spy.empty:
             _notify_depot(payload, spy["close_time"].iloc[-1].strftime("%Y-%m-%d"), args.notify_marker)
     return 0
 
@@ -243,6 +244,8 @@ def main(argv: list[str] | None = None) -> int:
     hypothetical.add_argument("--base-sek", type=float, default=10000.0)
     hypothetical.add_argument("--since", default="", help="restart: a session close (ISO, UTC); empty = from the first trade")
     hypothetical.add_argument("--out", default="", help="optional path to write a JSON summary")
+    hypothetical.add_argument("--live", action="store_true",
+                              help="value at the latest (intraday) price; never notifies")
     hypothetical.add_argument("--notify-marker", default="", help="send the kronor depot message to Telegram once per new trading day (file remembers the last)")
     hypothetical.set_defaults(func=cmd_hypothetical)
 
