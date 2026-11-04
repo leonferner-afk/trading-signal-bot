@@ -83,6 +83,7 @@
   "index_sek_pct": -0.088,
   "fund_symbol": "QQQ",
   "fund_sek_pct": 0.226,
+  "fund_last_price": 685.280029296875,
   "positions": [
     {
       "symbol": "AMD",
