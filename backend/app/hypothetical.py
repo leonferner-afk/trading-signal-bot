@@ -328,7 +328,12 @@ def depot_notice(payload: dict, session: str, previous_session: str | None) -> s
               and (previous_session is None or r["sell_date"] > previous_session)):
             events.append(f"🚀 Raket såld {r['symbol']}: {_kr_signed(gain)} ({_pct_sv(r.get('sek_return_pct'))})")
     lines += events or ["Inga köp eller sälj idag."]
-    lines.append(f"Depå: {_fmt_kr(payload['total_sek'])} kr · sedan start {payload.get('since', '')}: "
+    if rockets.get("value_sek") is not None:
+        base = payload["base_sek"] + rockets["base_sek"]
+        value = payload["total_sek"] + rockets["value_sek"]
+        lines.append(f"Totalt: {_fmt_kr(value)} kr ({_kr_signed(value - base)}, {_pct_sv((value / base - 1) * 100)}) "
+                     f"av {_fmt_kr(base)} kr")
+    lines.append(f"Huvuddepån: {_fmt_kr(payload['total_sek'])} kr · sedan start {payload.get('since', '')}: "
                  f"{_kr_signed(payload['delta_sek'])} ({_pct_sv(payload.get('delta_pct'))})")
     if rockets.get("value_sek") is not None:
         lines.append(f"Raketkassan (hög risk): {_fmt_kr(rockets['value_sek'])} kr "

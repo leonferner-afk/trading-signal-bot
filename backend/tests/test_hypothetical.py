@@ -213,7 +213,7 @@ def test_depot_notice_lists_orders_and_new_sales_in_kronor():
     assert "🔴 SÄLJ PLTR vid nästa öppning · nu 1 210 kr (−40 kr, −3,2 %) — relativ styrka föll" in text
     assert "✅ Sålt AMD: +58 kr (+4,6 %)" in text
     assert "INTC" not in text and "TDOC" not in text          # sold before the last notice; not in the depot
-    assert "Depå: 10 094 kr" in text and "+94 kr (+0,9 %)" in text and "10 050 kr" in text
+    assert "Huvuddepån: 10 094 kr" in text and "+94 kr (+0,9 %)" in text and "10 050 kr" in text
     rockets = {"base_sek": 10000.0, "value_sek": 10200.0, "rows": [
         {"symbol": "REGN", "status": "pending", "invested_sek": 1000.0, "value_sek": 1000.0},
         {"symbol": "CCL", "status": "closed", "invested_sek": 1000.0, "value_sek": 1219.0, "sek_return_pct": 21.9,
@@ -223,6 +223,8 @@ def test_depot_notice_lists_orders_and_new_sales_in_kronor():
     assert "🚀 RAKET KÖP REGN vid nästa öppning · 1 000 kr" in with_rockets
     assert "🚀 Raket såld CCL: +219 kr (+21,9 %)" in with_rockets and "TDOC" not in with_rockets
     assert "Raketkassan (hög risk): 10 200 kr (+200 kr)" in with_rockets
+    assert "Totalt: 20 294 kr (+294 kr, +1,5 %) av 20 000 kr" in with_rockets
+    assert "Totalt" not in text                                  # no rocket kassa -> no total line
     quiet = depot_notice({**payload, "positions": []}, "2026-11-06", "2026-11-05")
     assert "Inga köp eller sälj idag." in quiet
 

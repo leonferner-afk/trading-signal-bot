@@ -156,6 +156,18 @@ details[open] summary::after { content: "Dölj"; }
     <button type="button" id="hintClose" aria-label="Stäng tipset">OK</button>
   </div>
 
+  <section class="card account" id="totalCard" aria-label="Totalt" hidden>
+    <div>
+      <div class="label">Totalt · båda kassorna</div>
+      <div class="value-big" id="grandTotal">– kr</div>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="label">Vinst/förlust</span><span class="v" id="grandDelta">–</span></div>
+      <div class="stat"><span class="label">Insatt</span><span class="v" id="grandBase">–</span></div>
+    </div>
+    <div class="list" id="grandParts" style="margin:0 -18px -16px"></div>
+  </section>
+
   <section class="card" aria-label="Senaste händelser">
     <div class="cardhead"><h2>Senaste händelser</h2><span class="muted" id="feedNote"></span></div>
     <div class="feed" id="feed"><div class="empty">Händelser visas här när datan har laddats.</div></div>
@@ -163,7 +175,7 @@ details[open] summary::after { content: "Dölj"; }
 
   <section class="card account" aria-label="Depåöversikt">
     <div>
-      <div class="label" id="valueLabel">Depåvärde</div>
+      <div class="label" id="valueLabel">Huvuddepån</div>
       <div class="value-big" id="total">– kr</div>
     </div>
     <div class="stats">
@@ -500,12 +512,29 @@ function localTime(updated) {
   return t.toDateString() === new Date().toDateString() ? `idag ${hm}` : `${t.getDate()} ${MONTHS[t.getMonth()]} ${hm}`;
 }
 
+function renderTotal(s) {
+  const R = s.rockets;
+  $("totalCard").hidden = !R || R.value_sek == null;
+  if ($("totalCard").hidden) return;
+  const base = s.base_sek + R.base_sek, value = s.total_sek + R.value_sek, g = value - base;
+  $("grandTotal").textContent = kr(value);
+  $("grandDelta").textContent = `${skr(g)} · ${pct(g / base * 100)}`;
+  $("grandDelta").className = "v " + tone(g);
+  $("grandBase").textContent = kr(base);
+  const rg = R.value_sek - R.base_sek;
+  $("grandParts").innerHTML =
+    row(`Huvuddepån`, `${esc(s.fund_name || "Aktier via boten")} · sedan ${day(s.since)}`, esc(kr(s.total_sek)),
+        `${skr(s.delta_sek)} · ${pct(s.delta_pct)}`, tone(s.delta_sek)) +
+    row(`🚀 Raketkassan`, `Hög risk · sedan ${day(R.since)}`, esc(kr(R.value_sek)),
+        `${skr(rg)} · ${pct(rg / R.base_sek * 100)}`, tone(rg));
+}
+
 function render(s) {
   $("app").classList.remove("loading");
   const ageDays = (Date.now() - Date.parse(String(s.updated).replace(" UTC", "Z").replace(" ", "T"))) / 864e5;
   $("stale").hidden = !(ageDays > 4);
   $("updated").textContent = `Uppdaterad ${localTime(s.updated)}`;
-  $("valueLabel").textContent = `Depåvärde · start ${day(s.since)}`;
+  $("valueLabel").textContent = `Huvuddepån · start ${day(s.since)}`;
   $("total").textContent = kr(s.total_sek);
   const today = $("today");
   today.textContent = s.today_sek == null ? "–" : skr(s.today_sek);
@@ -521,7 +550,7 @@ function render(s) {
   $("splitlegend").innerHTML = (indexPct ? `<span><i style="background:var(--muted)"></i>${esc(s.fund_name || "S&P 500-fond")} ${Math.round(indexPct)} %</span>` : "") +
                                (botPct > 0 ? `<span><i style="background:var(--accent)"></i>Aktier via boten ${Math.round(botPct)} %</span>` : "");
   const L = ledger(s);
-  renderFeed(s, L); renderPL(L); renderHoldings(s, L); renderTrades(s, L); renderOrders(s, L); renderRockets(s);
+  renderFeed(s, L); renderPL(L); renderHoldings(s, L); renderTrades(s, L); renderOrders(s, L); renderRockets(s); renderTotal(s);
   lastHistory = Array.isArray(s.history) ? s.history : [];
   drawChart();
   $("report").innerHTML = renderReport(s.report_md);
