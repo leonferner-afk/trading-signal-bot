@@ -78,20 +78,23 @@ def eligible(f: pd.DataFrame) -> pd.Series:
 
 
 def trailing_exit(opens: np.ndarray, closes: np.ndarray, signal_i: int, trail: float,
-                  max_hold: int = MAX_HOLD) -> tuple[int, float, str] | None:
+                  max_hold: int = MAX_HOLD, take_profit: float = 0.0) -> tuple[int, float, str] | None:
     """Buy at the open after `signal_i`; returns (exit index, exit price,
-    reason) or None if the exit isn't known yet (data ends first)."""
+    reason) or None if the exit isn't known yet (data ends first).
+    `take_profit` > 0 also sells after a close at least that far above the fill."""
     entry = signal_i + 1
     if entry >= len(opens) or not math.isfinite(opens[entry]):
         return None
-    peak = opens[entry]
+    fill = peak = opens[entry]
     for k in range(entry, len(closes)):
         c = closes[k]
         if not math.isfinite(c):
             continue
         peak = max(peak, c)
         held = k - entry + 1
-        reason = "trail" if c <= peak * (1 - trail) else ("time" if held >= max_hold else None)
+        reason = ("trail" if c <= peak * (1 - trail)
+                  else "target" if take_profit > 0 and c >= fill * (1 + take_profit)
+                  else "time" if held >= max_hold else None)
         if reason:
             if k + 1 >= len(opens) or not math.isfinite(opens[k + 1]):
                 return None
@@ -196,6 +199,8 @@ class EarningsParams:
     min_reaction: float = 0.05      # 2-session price reaction
     min_volume_ratio: float = 0.0   # 0 = no extra volume requirement beyond `eligible()`
     min_rs: float = 0.0             # 0 = no requirement; else 6-month RS percentile (0-1) at entry
+    trail: float = EARNINGS_TRAIL   # exit: close this far below the highest close
+    take_profit: float = 0.0        # exit: close this far above the fill (0 = none)
 
     @property
     def name(self) -> str:
@@ -204,6 +209,10 @@ class EarningsParams:
             parts.append(f"volume>={self.min_volume_ratio:g}x")
         if self.min_rs > 0:
             parts.append(f"RS>={self.min_rs:g}")
+        if self.trail != EARNINGS_TRAIL:
+            parts.append(f"trail {self.trail * 100:g}%")
+        if self.take_profit > 0:
+            parts.append(f"take-profit +{self.take_profit * 100:g}%")
         return ", ".join(parts)
 
 
@@ -214,6 +223,13 @@ EARNINGS_GRID = [EarningsParams(s, r) for s in (0.0, 10.0) for r in (0.05, 0.10)
     # be more trustworthy — still paper-only until this clears the gates.
     EarningsParams(min_surprise_pct=20.0, min_reaction=0.10, min_volume_ratio=2.0, min_rs=0.8),
     EarningsParams(min_surprise_pct=20.0, min_reaction=0.15, min_volume_ratio=2.0, min_rs=0.8),
+] + [
+    # Owner's question (2026-11-09): would a tighter stop or a take-profit do
+    # better? Same entries as the live paper rule (app.live_rockets
+    # PAPER_PARAMS), only the exit changes. Fixed before the run.
+    EarningsParams(min_surprise_pct=20.0, min_reaction=0.10, min_volume_ratio=2.0, min_rs=0.8, **exit_)
+    for exit_ in ({"trail": 0.10}, {"trail": 0.15}, {"take_profit": 0.30}, {"take_profit": 0.50},
+                  {"trail": 0.15, "take_profit": 0.30})
 ]
 
 
@@ -273,7 +289,7 @@ def earnings_rows(symbol: str, df: pd.DataFrame, dates: np.ndarray, earnings: pd
             rs_val = (rs or {}).get(dates[d1])
             if rs_val is None or rs_val < params.min_rs:
                 continue
-        ex = trailing_exit(opens, closes, d1, EARNINGS_TRAIL, EARNINGS_MAX_HOLD)
+        ex = trailing_exit(opens, closes, d1, params.trail, EARNINGS_MAX_HOLD, params.take_profit)
         if ex is None:
             continue
         k, price, reason = ex
@@ -282,7 +298,7 @@ def earnings_rows(symbol: str, df: pd.DataFrame, dates: np.ndarray, earnings: pd
             "fill": float(opens[d1 + 1]), "exit_raw": price, "reason": reason, "hold_bars": k - d1 - 1,
             "jump": float(reaction), "surprise_pct": float(e["surprise_pct"]),
             "volume_ratio": float(e["surprise_pct"]),   # portfolio rank: biggest surprise first
-            "stop_dist_pct": EARNINGS_TRAIL * 100,
+            "stop_dist_pct": params.trail * 100,
         })
     return rows
 

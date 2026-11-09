@@ -65,6 +65,53 @@ def simulate(name: str, opens: pd.DataFrame, closes: pd.DataFrame, choose, fee_b
     return Result(name, pd.Series(values, index=days), switches)
 
 
+def simulate_exits(name: str, opens: pd.DataFrame, closes: pd.DataFrame, sym: str = "QQQ", cash: str = "BIL",
+                   trail: float = 0.0, take_profit: float = 0.0, fee_bps: float = 15.0, window: int = 200) -> Result:
+    """Holds `sym` with a stop-loss and/or take-profit, checked at every close
+    and executed at the next open: `trail` = a close that far below the highest
+    close since entry, `take_profit` = a close that far above the entry fill.
+    After an exit it sits in `cash` and re-enters at a month-end close with
+    `sym` above its `window`-day average (the first entry uses the same rule)."""
+    fee = fee_bps / 10000.0
+    days = closes.index
+    month_ends = _month_ends(days)
+    held, units, value = None, 0.0, 1.0
+    pending, entry_px, peak = None, None, None
+    values, switches = [], 0
+    for i, d in enumerate(days):
+        if pending is not None and pending != held:
+            if held is not None:
+                value = units * opens.at[d, held] * (1 - fee)
+            units = value * (1 - fee) / opens.at[d, pending]
+            held, switches = pending, switches + 1
+            entry_px = peak = opens.at[d, held] if held == sym else None
+        pending = None
+        values.append(units * closes.at[d, held] if held is not None else value)
+        c = closes.iloc[: i + 1]
+        if held == sym:
+            px = closes.at[d, sym]
+            peak = max(peak, px)
+            if (trail and px <= peak * (1 - trail)) or (take_profit and px >= entry_px * (1 + take_profit)):
+                pending = cash
+        elif d in month_ends and len(c) > max(window, TRADING_DAYS):
+            s_ = c[sym]
+            pending = sym if s_.iloc[-1] > s_.iloc[-window:].mean() else (cash if held is not None else None)
+    return Result(name, pd.Series(values, index=days), switches)
+
+
+EXIT_VARIANTS = [
+    # Owner's question (2026-11-09): stop-loss / take-profit on the Nasdaq 100
+    # depot? Fixed before the run; compared with plain buy-and-hold.
+    ("Nasdaq 100 + stop −10 %", {"trail": 0.10}),
+    ("Nasdaq 100 + stop −15 %", {"trail": 0.15}),
+    ("Nasdaq 100 + stop −20 %", {"trail": 0.20}),
+    ("Nasdaq 100 + take-profit +20 %", {"take_profit": 0.20}),
+    ("Nasdaq 100 + take-profit +30 %", {"take_profit": 0.30}),
+    ("Nasdaq 100 + take-profit +50 %", {"take_profit": 0.50}),
+    ("Nasdaq 100 + stop −15 % & take-profit +30 %", {"trail": 0.15, "take_profit": 0.30}),
+]
+
+
 def _ret(closes: pd.DataFrame, sym: str, days: int) -> float:
     s = closes[sym]
     return s.iloc[-1] / s.iloc[-1 - days] - 1
@@ -121,6 +168,11 @@ def evaluate(opens: pd.DataFrame, closes: pd.DataFrame, fee_bps: float = 15.0) -
         eq = res.equity.loc[start:]
         eq = eq / eq.iloc[0]
         results.append(Result(name, eq, res.switches))
+    for name, kw in EXIT_VARIANTS:
+        res = simulate_exits(name, opens, closes, fee_bps=fee_bps, **kw)
+        eq = res.equity.loc[start:]
+        eq = eq / eq.iloc[0]
+        results.append(Result(name, eq, res.switches))
     mid = results[0].equity.index[len(results[0].equity) // 2]
     table = []
     for res in results:
@@ -132,13 +184,23 @@ def evaluate(opens: pd.DataFrame, closes: pd.DataFrame, fee_bps: float = 15.0) -
                       "years": calendar_returns(res.equity, "YE"), "months": calendar_returns(res.equity, "ME"),
                       "equity": res.equity})
     spy = table[0]
-    for row in table[1:]:
+    main = table[:len(STRATEGIES)]
+    for row in main[1:]:
         row["qualifies"] = (row["sharpe"] > spy["sharpe"] and row["max_dd"] > spy["max_dd"]
                             and row["sharpe_h1"] > spy["sharpe_h1"] and row["sharpe_h2"] > spy["sharpe_h2"])
     spy["qualifies"] = None
-    winners = [r for r in table[1:] if r["qualifies"]]
+    winners = [r for r in main[1:] if r["qualifies"]]
     winner = max(winners, key=lambda r: r["cagr"])["name"] if winners else None
-    return {"table": table, "winner": winner, "start": str(start.date()), "end": str(closes.index[-1].date()),
+    # Stop/take-profit on Nasdaq 100: the owner chose "best risk-adjusted". A
+    # variant must beat plain Nasdaq 100 buy-and-hold on Sharpe over the whole
+    # period and in each half; the highest full-period Sharpe among those wins.
+    qqq = next(r for r in table if r["name"] == "Nasdaq 100 (köp och behåll)")
+    for row in table[len(STRATEGIES):]:
+        row["qualifies"] = (row["sharpe"] > qqq["sharpe"] and row["sharpe_h1"] > qqq["sharpe_h1"]
+                            and row["sharpe_h2"] > qqq["sharpe_h2"])
+    exit_ok = [r for r in table[len(STRATEGIES):] if r["qualifies"]]
+    exit_winner = max(exit_ok, key=lambda r: r["sharpe"])["name"] if exit_ok else None
+    return {"table": table, "winner": winner, "exit_winner": exit_winner, "n_main": len(STRATEGIES), "start": str(start.date()), "end": str(closes.index[-1].date()),
             "mid": str(mid.date())}
 
 
@@ -150,11 +212,25 @@ def report(res: dict) -> str:
              f"(delning {res['mid']}), och mindre största nedgång. Högst årsavkastning bland de godkända vinner.", "",
              "| Strategi | Per år | Största nedgång | Sharpe | Sharpe 1:a/2:a halvan | Byten | Godkänd |",
              "|---|---|---|---|---|---|---|"]
-    for r in t:
-        ok = "—" if r["qualifies"] is None else ("✅" if r["qualifies"] else "❌")
-        lines.append(f"| {r['name']} | {r['cagr']:+.1f} % | {r['max_dd']:.0f} % | {r['sharpe']:.2f} | "
-                     f"{r['sharpe_h1']:.2f} / {r['sharpe_h2']:.2f} | {r['switches']} | {ok} |")
-    lines += ["", f"**Vinnare enligt kraven:** {res['winner'] or 'ingen — behåll indexfonden'}", "",
+    row_md = lambda r: (f"| {r['name']} | {r['cagr']:+.1f} % | {r['max_dd']:.0f} % | {r['sharpe']:.2f} | "
+                        f"{r['sharpe_h1']:.2f} / {r['sharpe_h2']:.2f} | {r['switches']} | "
+                        f"{'—' if r['qualifies'] is None else ('✅' if r['qualifies'] else '❌')} |")
+    n = res.get("n_main", len(t))
+    lines += [row_md(r) for r in t[:n]]
+    lines += ["", f"**Vinnare enligt kraven:** {res['winner'] or 'ingen — behåll indexfonden'}", ""]
+    if len(t) > n:
+        lines += ["## Stop-loss och take-profit på Nasdaq 100", "",
+                  "Stopp/mål kollas vid varje stängning och säljs vid nästa öppning; efter en försäljning ligger pengarna i "
+                  "räntefond (BIL) och köper tillbaka vid en månadsstängning när Nasdaq 100 ligger över sitt 200-dagars snitt. "
+                  "Krav (bestämt innan, ägarens val: bäst riskjusterat): högre Sharpe än Nasdaq 100 köp-och-behåll hela "
+                  "perioden och i varje halva; högst Sharpe bland de godkända vinner.", "",
+                  "| Strategi | Per år | Största nedgång | Sharpe | Sharpe 1:a/2:a halvan | Byten | Godkänd |",
+                  "|---|---|---|---|---|---|---|"]
+        qqq = next(r for r in t if r["name"] == "Nasdaq 100 (köp och behåll)")
+        lines += [row_md({**qqq, "qualifies": None})] + [row_md(r) for r in t[n:]]
+        lines += ["", f"**Bäst riskjusterat:** {res.get('exit_winner') or 'ingen — behåll Nasdaq 100 utan stopp'}", ""]
+    t = t[:n]
+    lines += [
               "## Per år (%)", "", "| År | " + " | ".join(r["name"] for r in t) + " |",
               "|---|" + "---|" * len(t)]
     for year in t[0]["years"].index:
