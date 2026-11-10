@@ -138,6 +138,9 @@ delen av fördelen.
   - `HYPOTHETICAL_FUND` / `HYPOTHETICAL_FUND_PCT`: vad den hypotetiska kronkassan äger. Sedan 2026-11-03 är det
     100 % Nasdaq 100 (`QQQ`), vinnaren i testet av bot-kandidater (`app/bot_research.py`, körs med
     workflowet *Bot candidates research*). Aktieboten skickar fortfarande sina papperssignaler men styr inte kassan.
+  - `HYPOTHETICAL_FUND_STOP` (0.15 sedan 2026-11-10, ägarens val): fonden säljs efter en stängning 15 % under toppen och
+    köps tillbaka efter en månadsstängning över 200-dagars snittet (`app/fund_stop.py`, räknas om från starten varje
+    körning). Vann testet av stop-loss/take-profit som bäst riskjusterat; take-profit hjälpte inte.
 
   Resten är tänkt att ligga i en S&P 500-fond som boten aldrig rör, och varje köp blir 1/8 av botens del.
 

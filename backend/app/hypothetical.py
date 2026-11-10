@@ -316,6 +316,17 @@ def depot_notice(payload: dict, session: str, previous_session: str | None) -> s
         elif (p["status"] == "closed" and gain is not None and t.get("sell_date")
               and (previous_session is None or t["sell_date"] > previous_session)):
             events.append(f"✅ Sålt {p['symbol']}: {_kr_signed(gain)} ({_pct_sv(p.get('sek_return_pct'))})")
+    stop = payload.get("fund_stop") or {}
+    fund = fund_name(payload.get("fund_symbol") or "SPY")
+    if stop.get("pending") == "sell":
+        events.append(f"🔴 SÄLJ {fund} vid nästa öppning — stoppet nåddes "
+                      f"({_pct_sv(-stop.get('trail_pct', 0))} från toppen)")
+    elif stop.get("pending") == "buy":
+        events.append(f"🟢 KÖP tillbaka {fund} vid nästa öppning — trenden har vänt upp")
+    for e in stop.get("events", []):
+        if e["type"] in ("sell", "buy") and (previous_session is None or e["date"] > previous_session):
+            verb = "Sålt" if e["type"] == "sell" else "Köpt tillbaka"
+            events.append(f"{'✅' if e['type'] == 'sell' else '🟢'} {verb} {fund}: {_fmt_kr(e['value_sek'])} kr")
     rockets = payload.get("rockets") or {}
     for r in rockets.get("rows", []):
         gain = None if r.get("value_sek") is None else r["value_sek"] - r["invested_sek"]

@@ -225,6 +225,11 @@ def test_depot_notice_lists_orders_and_new_sales_in_kronor():
     assert "Raketkassan (hög risk): 10 200 kr (+200 kr)" in with_rockets
     assert "Totalt: 20 294 kr (+294 kr, +1,5 %) av 20 000 kr" in with_rockets
     assert "Totalt" not in text                                  # no rocket kassa -> no total line
+    stop = {"trail_pct": 15.0, "pending": "sell",
+            "events": [{"type": "sell_signal", "date": "2026-11-05"}, {"type": "buy", "date": "2026-11-05", "value_sek": 9876.5}]}
+    with_stop = depot_notice({**payload, "fund_symbol": "QQQ", "fund_stop": stop}, "2026-11-05", "2026-11-04")
+    assert "🔴 SÄLJ Nasdaq 100-fond vid nästa öppning — stoppet nåddes (−15,0 % från toppen)" in with_stop
+    assert "🟢 Köpt tillbaka Nasdaq 100-fond: 9 876 kr" in with_stop
     quiet = depot_notice({**payload, "positions": []}, "2026-11-06", "2026-11-05")
     assert "Inga köp eller sälj idag." in quiet
 

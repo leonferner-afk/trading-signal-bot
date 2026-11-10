@@ -162,6 +162,23 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
     index_sek_pct = sek_move(spy)
     fund_sek_pct = sek_move(fund)
     fund_pct_env = os.environ.get("HYPOTHETICAL_FUND_PCT", "").strip()
+    index_pct = min(max(float(fund_pct_env), 0.0), 100.0) if fund_pct_env else 100.0 - _bot_share_pct()
+
+    # Optional trailing stop on the fund part (owner's choice 2026-11-10: -15 %),
+    # replayed from the start close — see app/fund_stop.py.
+    fund_stop = None
+    stop_env = os.environ.get("HYPOTHETICAL_FUND_STOP", "").strip()
+    if stop_env and float(stop_env) > 0 and index_pct > 0 and fund is not None and not fund.empty:
+        from app.config import settings as _settings
+        from app.fund_stop import simulate as simulate_fund_stop
+
+        import pandas as pd
+
+        stake = args.base_sek * index_pct / 100
+        # The stop acts on finished sessions only, also in --live (an intraday dip isn't a close).
+        fund = fund[fund["close_time"] <= pd.Timestamp.now(tz="UTC")]
+        fund_stop = simulate_fund_stop(fund, fx, start_ts, stake, trail=float(stop_env), fee_bps=_settings.fee_bps)
+        fund_sek_pct = None if fund_stop.value_sek is None else (fund_stop.value_sek / stake - 1) * 100
 
     params = active_rotation_params()
     managed = bot_capital() + rocket_pot_capital()
@@ -169,7 +186,7 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
     result = hypothetical_value(records, marks, fx, base_sek=args.base_sek, max_positions=params.max_positions,
                                 since=since_ts, base_closes=base_closes, pot_records=pot_records, pot_marks=pot_marks,
                                 pot_pct=pot_pct,
-                                index_pct=min(max(float(fund_pct_env), 0.0), 100.0) if fund_pct_env else 100.0 - _bot_share_pct(),
+                                index_pct=index_pct,
                                 index_sek_pct=index_sek_pct, fund_symbol=fund_symbol, fund_sek_pct=fund_sek_pct)
     since = args.since[:10] if args.since else (records or pot_records)[0].timestamp[:10]
     message = format_hypothetical_message(result, since)
@@ -198,7 +215,10 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
             "pot_pct": round(pot_pct, 2), "index_pct": result.index_pct, "index_sek_pct": result.index_sek_pct,
             "fund_symbol": result.fund_symbol, "fund_sek_pct": result.fund_sek_pct,
             # The fund price its value is computed at — lets the app revalue it with a live quote.
-            "fund_last_price": None if fund is None or fund.empty else float(fund["close"].iloc[-1]),
+            # (None while the stop has the money in kronor: then live quotes must not move it.)
+            "fund_last_price": None if fund is None or fund.empty or (fund_stop and not fund_stop.holding)
+            else float(fund["close"].iloc[-1]),
+            "fund_stop": fund_stop.as_dict() if fund_stop else None,
             "positions": [
                 {"symbol": p.symbol, "kind": p.kind, "status": p.status, "usd_return_pct": p.usd_return_pct,
                  "sek_return_pct": p.sek_return_pct, "id": p.record_id, "entry_price": p.entry_price,

@@ -378,7 +378,9 @@ function ledger(s) {
   if (fundStake > 0) {
     const fp = s.fund_sek_pct !== undefined ? s.fund_sek_pct : s.index_sek_pct;
     const value = fp == null ? null : fundStake * (1 + fp / 100);
-    pos.unshift({ id: "fund", symbol: s.fund_name || "S&P 500-fond", kind: "fund", status: "open", invested_sek: fundStake,
+    const out = s.fund_stop && !s.fund_stop.holding;
+    pos.unshift({ id: "fund", symbol: out ? "Kontanter (efter stopp)" : (s.fund_name || "S&P 500-fond"), kind: out ? "cash" : "fund",
+                  status: "open", invested_sek: fundStake,
                   value_sek: value, gain: value == null ? null : value - fundStake, sek_return_pct: fp,
                   t: {}, fromStart: true, buyDate: s.since, sell_signaled: false });
   }
@@ -391,7 +393,15 @@ function ledger(s) {
   };
 }
 const sum = xs => xs.reduce((a, x) => a + (x ?? 0), 0);
-const KIND_TAG = p => p.kind === "lekpott" ? ' <span class="tag">Raket</span>' : p.kind === "fund" ? ' <span class="tag">Fond</span>' : "";
+const KIND_TAG = p => p.kind === "lekpott" ? ' <span class="tag">Raket</span>' : p.kind === "fund" ? ' <span class="tag">Fond</span>'
+  : p.kind === "cash" ? ' <span class="tag">Kontanter</span>' : "";
+// One line about the fund's stop-loss: where it sells, or that the money waits for the trend.
+function stopLine(s) {
+  const st = s.fund_stop;
+  if (!st) return "";
+  if (!st.holding) return ` · väntar på att trenden vänder upp (köper tillbaka efter en månadsstängning över 200-dagars snittet)`;
+  return st.stop_price ? ` · stopp: säljs om den stänger under ${usd(st.stop_price)} (−${Math.round(st.trail_pct)} % från toppen ${usd(st.peak_price)})` : "";
+}
 
 function ev(kind, label, what, sub, amt, amtSub = "", amtTone = "") {
   return `<div class="ev"><div class="dot ${kind}" aria-hidden="true">${label}</div>` +
@@ -410,13 +420,22 @@ function renderFeed(s, L) {
     `${day(p.t.sell_date)} · ${esc(p.t.sell_reason || "säljsignal")}`, esc(skr(p.gain)), pct(p.sek_return_pct), tone(p.gain)) });
   for (const p of L.pos.filter(p => p.status !== "pending" && !p.fromStart)) items.push({ date: p.buyDate || "", html: ev("buy", "KÖPT",
     `Köpte ${esc(p.symbol)}`, `${day(p.buyDate)} · ${usd(p.entry_price)} per aktie`, esc(kr(p.invested_sek))) });
+  const st = s.fund_stop, fname = esc(s.fund_name || "fonden");
+  if (st && st.pending === "sell") items.push({ date: "9999", html: ev("sell", "SÄLJ", `Säljer ${fname} vid nästa öppning`,
+    `Stoppet nåddes: −${Math.round(st.trail_pct)} % från toppen`, "", "") });
+  if (st && st.pending === "buy") items.push({ date: "9999", html: ev("buy", "KÖP", `Köper tillbaka ${fname} vid nästa öppning`,
+    "Trenden har vänt upp", "", "") });
+  for (const e of (st && st.events) || []) {
+    if (e.type === "sell") items.push({ date: e.date, html: ev("sell", "SÅLT", `Sålde ${fname} (stopp)`, `${day(e.date)} · ${usd(e.price)}`, esc(kr(e.value_sek))) });
+    if (e.type === "buy") items.push({ date: e.date, html: ev("buy", "KÖPT", `Köpte tillbaka ${fname}`, `${day(e.date)} · ${usd(e.price)}`, esc(kr(e.value_sek))) });
+  }
   const started = L.pos.filter(p => p.fromStart);
-  if (started.length) items.push({ date: s.since, html: ev("wait", "START", started.length === 1 ? `Köpte ${esc(started[0].symbol)}` : `Start med ${started.length} innehav`,
+  if (started.length) items.push({ date: s.since, html: ev("wait", "START", started.length === 1 ? `Köpte ${esc(started[0].kind === "cash" ? (s.fund_name || "fonden") : started[0].symbol)}` : `Start med ${started.length} innehav`,
     started.length === 1 ? `${day(s.since)} · hela insatsen` : `${day(s.since)} · ${esc(started.map(p => p.symbol).join(", "))}`,
     esc(kr(sum(started.map(p => p.invested_sek))))) });
   items.sort((a, b) => b.date.localeCompare(a.date));
   $("feed").innerHTML = items.slice(0, 8).map(i => i.html).join("") || '<div class="empty">Inga händelser ännu.</div>';
-  $("feedNote").textContent = L.pending.length || L.open.some(p => p.sell_signaled) ? "Order väntar" : "Inga order just nu";
+  $("feedNote").textContent = L.pending.length || L.open.some(p => p.sell_signaled) || (st && st.pending) ? "Order väntar" : "Inga order just nu";
 }
 
 function renderPL(L) {
@@ -434,7 +453,7 @@ function renderHoldings(s, L) {
   const out = [];
   for (const p of [...L.open].sort((a, b) => (b.gain ?? 0) - (a.gain ?? 0))) {
     const tags = KIND_TAG(p) + (p.sell_signaled ? ' <span class="tag sell">Säljs vid öppning</span>' : "");
-    out.push(row(esc(p.symbol), p.kind === "fund" ? `Köpt för ${kr(p.invested_sek)} · ${day(p.buyDate)}` : `Köpt för ${kr(p.invested_sek)} · ${usd(p.entry_price)} → ${usd(p.last_price)}`,
+    out.push(row(esc(p.symbol), (p.kind === "fund" || p.kind === "cash") ? `Insatt ${kr(p.invested_sek)} · ${day(p.buyDate)}${stopLine(s)}` : `Köpt för ${kr(p.invested_sek)} · ${usd(p.entry_price)} → ${usd(p.last_price)}`,
                  esc(kr(p.value_sek)), `${skr(p.gain)} · ${pct(p.sek_return_pct)}`, tone(p.gain), tags));
   }
   for (const p of L.pending) out.push(row(esc(p.symbol), `Köps vid nästa öppning · senast ${usd(p.last_price)}`,
@@ -476,6 +495,10 @@ function renderOrders(s, L) {
     `Signal ${day(p.t.signal_date)} · köps vid nästa öppning`, esc(kr(p.invested_sek)), `senast ${usd(p.last_price)}`, "", KIND_TAG(p)));
   for (const p of L.open.filter(p => p.sell_signaled)) out.push(row(`<span class="tag sell">Sälj</span> ${esc(p.symbol)}`,
     `${esc(p.t.sell_reason || "säljs vid nästa öppning")}`, esc(kr(p.value_sek)), `${skr(p.gain)} · ${pct(p.sek_return_pct)}`, tone(p.gain)));
+  const st = s.fund_stop;
+  if (st && st.pending) out.unshift(row(`<span class="tag ${st.pending === "sell" ? "sell" : "buy"}">${st.pending === "sell" ? "Sälj" : "Köp"}</span> ${esc(s.fund_name || "Fonden")}`,
+    st.pending === "sell" ? `Stoppet nåddes (−${Math.round(st.trail_pct)} % från toppen) · säljs vid nästa öppning` : "Trenden har vänt upp · köps vid nästa öppning",
+    "", ""));
   $("orders").innerHTML = out.length ? out.join("") :
     '<div class="empty">Inga order just nu. Nya köp och sälj dyker upp här morgonen efter botens signal och genomförs vid nästa börsöppning.</div>';
 }

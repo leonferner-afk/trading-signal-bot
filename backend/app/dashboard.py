@@ -257,6 +257,7 @@ def status_payload(h: dict, report_md: str, history: list[dict], updated: str) -
         "index_pct": h.get("index_pct") or 0.0, "index_sek_pct": spy_pct,
         "fund_symbol": h.get("fund_symbol") or "SPY", "fund_name": _fund_name(h), "fund_sek_pct": _fund_pct(h),
         "fund_last_price": h.get("fund_last_price"),
+        "fund_stop": h.get("fund_stop"),
         "rotation_stake_sek": round(rot_stake, 2), "rotation_value_sek": round(rot_value, 2),
         "spy_all_sek": round(base * (1 + spy_pct / 100), 2) if spy_pct is not None else None,
         "rocket_paper_sek": h.get("rocket_paper_sek"), "rockets": h.get("rockets"),

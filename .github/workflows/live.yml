@@ -65,6 +65,10 @@ jobs:
           HYPOTHETICAL_SINCE: ${{ vars.HYPOTHETICAL_SINCE || '2026-11-02T21:00:00+00:00' }}
           HYPOTHETICAL_FUND: ${{ vars.HYPOTHETICAL_FUND || 'QQQ' }}
           HYPOTHETICAL_FUND_PCT: ${{ vars.HYPOTHETICAL_FUND_PCT || '100' }}
+          # Trailing stop on the fund (owner's choice 2026-11-10, best risk-adjusted
+          # in app/bot_research.py): sell after a close 15 % below the top, buy back
+          # after a month-end close above the 200-day average. Replayed from the start.
+          HYPOTHETICAL_FUND_STOP: ${{ vars.HYPOTHETICAL_FUND_STOP || '0.15' }}
           BOT_SHARE_PCT: ${{ vars.BOT_SHARE_PCT || '100' }}
           ROCKET_POT_PCT: ${{ vars.ROCKET_POT_PCT || '0' }}
         run: |
