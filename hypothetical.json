@@ -105,6 +105,16 @@
   "fund_symbol": "QQQ",
   "fund_sek_pct": 0.474,
   "fund_last_price": 679.3499755859375,
+  "fund_stop": {
+    "value_sek": 10047.44,
+    "holding": true,
+    "trail_pct": 15.0,
+    "peak_price": 691.95,
+    "stop_price": 588.16,
+    "last_price": 679.35,
+    "pending": null,
+    "events": []
+  },
   "positions": [
     {
       "symbol": "AMD",
