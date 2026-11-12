@@ -1,13 +1,13 @@
 # Tradingbot 2026-11-12
 
-**Marknaden:** SPY över sitt 200-dagars snitt
+**Marknaden:** SPY okänt sitt 200-dagars snitt
 **Strategi:** momentum-rotation — top8, in RS>=0.8, out RS<0.5
 **Portfölj:** $10,000 · 8/8 innehav · senaste handelsdag i datan: 2026-11-11
 
 > ⚠ Reglerna klarar inte forskningens förhandsbestämda krav (slår inte SPY riskjusterat). Ingen testad variant har slagit att bara äga en S&P 500-fond riskjusterat — se signalerna som ett aktivt alternativ med ungefär indexlik historik, inte som en bevisad fördel.
 
 ## 🟢 KÖP (0)
-Inga nya köp idag. Alla platser är fyllda.
+Ingen ny handelsdag sedan förra körningen (helgdag eller omkörning) — inga nya beslut.
 
 ## 🔴 SÄLJ (0)
 Inga säljsignaler idag.
@@ -15,24 +15,21 @@ Inga säljsignaler idag.
 ## 📊 Innehav (8/8)
 | Aktie | Köpt | Senast | Resultat | Rel. styrka nu | Dagar |
 |---|---|---|---|---|---|
-| CRWD | 257.19 | 229.06 | -10.9% | 100% | 32 |
-| PANW | 390.1 | 334.47 | -14.3% | 96% | 32 |
-| ADP | 296.86 | 306.36 | +3.2% | 97% | 15 |
-| TMO | 672.69 | 717.71 | +6.7% | 99% | 14 |
-| LLY | 1273.5 | 1437.29 | +12.9% | 93% | 12 |
-| PLTR | 193.625 | 172.4 | -11.0% | 88% | 9 |
-| ABBV | 282.27 | 294.98 | +4.5% | 95% | 4 |
-| AMGN | 448.17 | 468.11 | +4.5% | 92% | 4 |
-
-## 👀 Näst på tur
-Starkast av de som uppfyller köpreglerna men inte fick plats: SHOP, DHR, ANET, MDT, MA, V, ABT, CRM.
+| CRWD | 257.19 | 229.06 | -10.9% | — | 32 |
+| PANW | 390.1 | 334.47 | -14.3% | — | 32 |
+| ADP | 296.86 | 306.36 | +3.2% | — | 15 |
+| TMO | 672.69 | 717.71 | +6.7% | — | 14 |
+| LLY | 1273.5 | 1437.29 | +12.9% | — | 12 |
+| PLTR | 193.625 | 172.4 | -11.0% | — | 9 |
+| ABBV | 282.27 | 294.98 | +4.5% | — | 4 |
+| AMGN | 448.17 | 468.11 | +4.5% | — | 4 |
 
 ## 📈 Resultat hittills (papperstrading, riktiga fyllnadspriser, avgifter inräknade)
 7 stängda affärer · 0% vinnare · snitt -24.57% per affär
 
 ---
 Backtest av exakt dessa regler (backtest 8.7 år på storbolag valda 2015, samma regler): +14.8%/år, största nedgång -29% — SPY samma period +14.1%/år, största nedgång -34%.
-Universum: 107 aktier (1 utan data idag).
+Universum: 107 aktier (0 utan data idag).
 Boten handlar aldrig åt dig. Historik är ingen garanti — varje affär kan förlora.
 
 ## ⚖️ Mot index (SPY) — måttstocken som räknas
@@ -46,7 +43,6 @@ Sedan 2026-09-25: rotationen **-22.1 %** · SPY **-1.5 %** · skillnad **-20.6 p
 Bedöm boten över 1–2 år mot SPY, inte på enskilda dagar eller veckor. Öppna innehav räknas till senaste stängning (utan säljavgift), tomma platser som kontanter.
 
 ## 🚀 Raketer — papperstrading (köp inte)
-Kontrollerade 277 aktier: 0 steg ≥ 10% på två dagar, 0 efter en rapport som slog förväntningarna.
 
 | Raket | Typ | 'Köpt' | Senast | Resultat | Dagar |
 |---|---|---|---|---|---|
