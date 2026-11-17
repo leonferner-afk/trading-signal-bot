@@ -32,7 +32,12 @@
         "value_sek": 1192.64,
         "sek_return_pct": 19.264,
         "entry_price": 24.53499160862202,
-        "sell_signaled": false
+        "sell_signaled": false,
+        "news": {
+          "headlines": null,
+          "reddit_24h": null,
+          "checked": "2026-11-17"
+        }
       },
       {
         "id": 15,
@@ -53,7 +58,12 @@
         "value_sek": 1039.86,
         "sek_return_pct": 3.986,
         "entry_price": 8.5600004196167,
-        "sell_signaled": false
+        "sell_signaled": false,
+        "news": {
+          "headlines": null,
+          "reddit_24h": null,
+          "checked": "2026-11-17"
+        }
       },
       {
         "id": 16,
@@ -74,7 +84,12 @@
         "value_sek": 1021.49,
         "sek_return_pct": 2.149,
         "entry_price": 956.280029296875,
-        "sell_signaled": false
+        "sell_signaled": false,
+        "news": {
+          "headlines": null,
+          "reddit_24h": null,
+          "checked": "2026-11-17"
+        }
       },
       {
         "id": 19,
@@ -95,7 +110,12 @@
         "value_sek": 1021.37,
         "sek_return_pct": 2.137,
         "entry_price": 52.150001525878906,
-        "sell_signaled": false
+        "sell_signaled": false,
+        "news": {
+          "headlines": null,
+          "reddit_24h": null,
+          "checked": "2026-11-17"
+        }
       }
     ]
   },

@@ -28,7 +28,7 @@ Inga säljsignaler idag.
 7 stängda affärer · 0% vinnare · snitt -24.57% per affär
 
 ---
-Backtest av exakt dessa regler (backtest 8.7 år på storbolag valda 2015, samma regler): +14.6%/år, största nedgång -29% — SPY samma period +14.0%/år, största nedgång -34%.
+Backtest av exakt dessa regler (backtest 8.7 år på storbolag valda 2015, samma regler): +15.1%/år, största nedgång -29% — SPY samma period +13.6%/år, största nedgång -34%.
 Universum: 107 aktier (0 utan data idag).
 Boten handlar aldrig åt dig. Historik är ingen garanti — varje affär kan förlora.
 
