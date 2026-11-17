@@ -130,6 +130,9 @@ details[open] summary::after { content: "Dölj"; }
                    border: 1px solid var(--line); background: var(--soft); color: var(--fg); resize: vertical; }
 .notify ol { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: .92rem; }
 .btn { font: inherit; font-weight: 700; color: #fff; background: var(--accent); border: 0; padding: 10px 14px; border-radius: 10px; cursor: pointer; justify-self: start; }
+.news { padding: 0 16px 12px; margin-top: -4px; display: grid; gap: 4px; font-size: .82rem; color: var(--muted); }
+.news a { color: var(--fg); text-decoration: none; }
+.news a:hover { text-decoration: underline; }
 .refresh { font: inherit; font-size: .88rem; font-weight: 600; color: var(--accent); background: none; border: 0; padding: 4px 0; cursor: pointer; }
 </style>
 </head>
@@ -517,14 +520,25 @@ function renderRockets(s) {
   $("rocketFree").textContent = `${Math.max(0, Math.round(R.base_sek / R.slot_sek) - busy)} av ${Math.round(R.base_sek / R.slot_sek)}`;
   const order = { pending: 0, open: 1, closed: 2 };
   const rows = [...R.rows].sort((a, b) => order[a.status] - order[b.status] || (b.sell_date || b.buy_date || "").localeCompare(a.sell_date || a.buy_date || ""));
-  $("rocketList").innerHTML = rows.map(r => {
+  // Information only — the news never changes a buy or a sell.
+  const newsHtml = n => {
+    if (!n) return "";
+    const items = (n.headlines || []).slice(0, 3).map(h => `<div>📰 ${h.url && /^https:\/\//.test(h.url)
+      ? `<a href="${esc(h.url)}" target="_blank" rel="noopener noreferrer">${esc(h.headline)}</a>` : esc(h.headline)}${h.source ? ` · ${esc(h.source)}` : ""}</div>`);
+    if (n.headlines && !n.headlines.length) items.push("<div>📰 Inga nyhetsrubriker de senaste dagarna.</div>");
+    if (n.reddit_24h != null) items.push(`<div>💬 Reddit senaste dygnet: ${n.reddit_24h} inlägg nämner aktien</div>`);
+    return items.length ? `<div class="news">${items.join("")}</div>` : "";
+  };
+  $("rocketList").innerHTML = rows.map(r => newsAfter(r, newsHtml)).join("");
+  function newsAfter(r, newsHtml) { return rowFor(r) + (r.status !== "closed" ? newsHtml(r.news) : ""); }
+  function rowFor(r) {
     const gain = r.value_sek != null ? r.value_sek - r.invested_sek : null;
     if (r.status === "pending") return row(esc(r.symbol), `Signal ${day(r.signal_date)} · köps vid nästa öppning`, esc(kr(r.invested_sek)), "väntar på köp", "", ' <span class="tag buy">Köps</span>');
     if (r.status === "closed") return row(esc(r.symbol), `${day(r.buy_date)} → ${day(r.sell_date)} · köpt för ${kr(r.invested_sek)}, såld för ${kr(r.value_sek)}`,
       esc(skr(gain)), pct(r.sek_return_pct), tone(gain), ' <span class="tag">Såld</span>');
     return row(esc(r.symbol), `Köpt ${day(r.buy_date)} för ${kr(r.invested_sek)} · ${usd(r.entry_price)} → ${usd(r.last_price)}`,
       esc(kr(r.value_sek)), `${skr(gain)} · ${pct(r.sek_return_pct)}`, tone(gain), r.sell_signaled ? ' <span class="tag sell">Säljs vid öppning</span>' : "");
-  }).join("");
+  }
 }
 
 // "2026-11-04 15:45 UTC" -> "idag 16:45" / "4 nov 16:45" in the viewer's own time zone.

@@ -297,6 +297,20 @@ def _pct_sv(value: float | None) -> str:
     return "–" if value is None else (f"{value:+.1f} %").replace("-", "−").replace(".", ",")
 
 
+def _news_lines(news: dict | None) -> list[str]:
+    """Context under a new rocket — information only, it never changes the buy."""
+    if not news:
+        return []
+    out = []
+    for h in (news.get("headlines") or [])[:2]:
+        out.append(f"   📰 {h['headline']}" + (f" ({h['source']})" if h.get("source") else ""))
+    if news.get("headlines") == []:
+        out.append("   📰 Inga nyhetsrubriker de senaste dagarna.")
+    if news.get("reddit_24h") is not None:
+        out.append(f"   💬 Reddit senaste dygnet: {news['reddit_24h']} inlägg nämner aktien")
+    return out
+
+
 def depot_notice(payload: dict, session: str, previous_session: str | None) -> str:
     """The owner's Telegram message for one trading day, in kronor, from the
     tracker payload (cmd_hypothetical's JSON): orders for the next open, sales
@@ -333,6 +347,7 @@ def depot_notice(payload: dict, session: str, previous_session: str | None) -> s
         gain = None if r.get("value_sek") is None else r["value_sek"] - r["invested_sek"]
         if r["status"] == "pending":
             events.append(f"🚀 RAKET KÖP {r['symbol']} vid nästa öppning · {_fmt_kr(r['invested_sek'])} kr")
+            events += _news_lines(r.get("news"))
         elif r["status"] == "open" and r.get("sell_signaled"):
             events.append(f"🚀 RAKET SÄLJ {r['symbol']} vid nästa öppning"
                           + ("" if gain is None else f" · nu {_kr_signed(gain)} ({_pct_sv(r.get('sek_return_pct'))})"))

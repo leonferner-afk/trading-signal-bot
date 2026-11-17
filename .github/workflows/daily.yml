@@ -116,6 +116,8 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           # ...and/or as a notification in the home-screen app (the app's "notis-kod").
           WEB_PUSH: ${{ secrets.WEB_PUSH }}
+          # News check for rockets (information only): Finnhub company headlines.
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
         run: >-
           python -m app.cli hypothetical --base-sek "${HYPOTHETICAL_BASE_SEK:-10000}" --since "$HYPOTHETICAL_SINCE"
           --out "$GITHUB_WORKSPACE/state/hypothetical.json" --notify-marker "$GITHUB_WORKSPACE/state/depot_notified.txt"

@@ -144,6 +144,9 @@ delen av fördelen.
   - `HIDE_DEPOT` (1 sedan 2026-11-17, ägarens val): appen och notiserna visar bara raketkassan; depån räknas vidare i
     bakgrunden. Raketerna följer sedan dess den bredare regeln "slår förväntningarna + minst +10 % på två dagar"
     (`app/live_rockets.py` PAPER_PARAMS) för fler köp och sälj — fortfarande obevisad, bara papper.
+  - **Nyhetskoll för raketer** (bara information, styr aldrig köp/sälj; `app/news.py`): senaste rubrikerna från
+    Finnhub (secret `FINNHUB_API_KEY`) och antal Reddit-inlägg senaste dygnet som nämner aktien. Visas i appen och
+    under varje ny raket i morgonnotisen. Kan inte backtestas, därför styr det inget.
 
   Resten är tänkt att ligga i en S&P 500-fond som boten aldrig rör, och varje köp blir 1/8 av botens del.
 

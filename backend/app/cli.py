@@ -197,6 +197,7 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
 
         rockets = rocket_rows(rocket_taken, rocket_marks, fx, args.base_sek,
                               trade_rows(rocket_taken, "raket", trade_bars, lambda r: rocket_marks.get(r.id)))
+        _attach_news(rockets, live=args.live, previous_path=args.out)
         from app.hypothetical import _fmt_kr, rocket_portfolio_sek
 
         rocket_sek, rocket_missing = rocket_portfolio_sek(rocket_taken, rocket_marks, fx, args.base_sek)
@@ -237,6 +238,32 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
         if args.notify_marker and not args.live and spy is not None and not spy.empty:
             _notify_depot(payload, spy["close_time"].iloc[-1].strftime("%Y-%m-%d"), args.notify_marker)
     return 0
+
+
+def _attach_news(rockets: dict, live: bool, previous_path: str) -> None:
+    """News check (information only) for rockets still held or waiting: fetched
+    on the daily run; the live revaluation every 15 minutes reuses what the last
+    file had instead of calling the news services again."""
+    active = [r for r in rockets.get("rows", []) if r.get("status") in ("open", "pending")]
+    if not active:
+        return
+    if live:
+        import json
+
+        try:
+            with open(previous_path, encoding="utf-8") as fh:
+                old = {r.get("symbol"): r.get("news") for r in (json.load(fh).get("rockets") or {}).get("rows", [])}
+        except (OSError, ValueError):
+            old = {}
+        for r in active:
+            if old.get(r["symbol"]):
+                r["news"] = old[r["symbol"]]
+        return
+    from app.news import news_for
+
+    found = news_for([r["symbol"] for r in active])
+    for r in active:
+        r["news"] = found.get(r["symbol"])
 
 
 def _notify_depot(payload: dict, session: str, marker_path: str) -> None:
