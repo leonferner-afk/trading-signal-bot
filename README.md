@@ -141,6 +141,9 @@ delen av fördelen.
   - `HYPOTHETICAL_FUND_STOP` (0.15 sedan 2026-11-10, ägarens val): fonden säljs efter en stängning 15 % under toppen och
     köps tillbaka efter en månadsstängning över 200-dagars snittet (`app/fund_stop.py`, räknas om från starten varje
     körning). Vann testet av stop-loss/take-profit som bäst riskjusterat; take-profit hjälpte inte.
+  - `HIDE_DEPOT` (1 sedan 2026-11-17, ägarens val): appen och notiserna visar bara raketkassan; depån räknas vidare i
+    bakgrunden. Raketerna följer sedan dess den bredare regeln "slår förväntningarna + minst +10 % på två dagar"
+    (`app/live_rockets.py` PAPER_PARAMS) för fler köp och sälj — fortfarande obevisad, bara papper.
 
   Resten är tänkt att ligga i en S&P 500-fond som boten aldrig rör, och varje köp blir 1/8 av botens del.
 

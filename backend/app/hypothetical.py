@@ -301,9 +301,10 @@ def depot_notice(payload: dict, session: str, previous_session: str | None) -> s
     """The owner's Telegram message for one trading day, in kronor, from the
     tracker payload (cmd_hypothetical's JSON): orders for the next open, sales
     filled since the previous notice, and the depot's value. Paper only."""
+    hidden = bool(payload.get("depot_hidden"))      # owner runs the rocket kassa only; the depot is counted silently
     trades = {t["id"]: t for t in payload.get("trades", [])}
-    positions = [p for p in payload.get("positions", []) if (p.get("invested_sek") or 0) > 0]
-    lines = [f"📱 Min depå (papper) — handelsdag {session}"]
+    positions = [] if hidden else [p for p in payload.get("positions", []) if (p.get("invested_sek") or 0) > 0]
+    lines = [f"🚀 Raketkassan (papper) — handelsdag {session}" if hidden else f"📱 Min depå (papper) — handelsdag {session}"]
     events = []
     for p in positions:
         t = trades.get(p.get("id"), {})
@@ -316,7 +317,7 @@ def depot_notice(payload: dict, session: str, previous_session: str | None) -> s
         elif (p["status"] == "closed" and gain is not None and t.get("sell_date")
               and (previous_session is None or t["sell_date"] > previous_session)):
             events.append(f"✅ Sålt {p['symbol']}: {_kr_signed(gain)} ({_pct_sv(p.get('sek_return_pct'))})")
-    stop = payload.get("fund_stop") or {}
+    stop = {} if hidden else (payload.get("fund_stop") or {})
     fund = fund_name(payload.get("fund_symbol") or "SPY")
     if stop.get("pending") == "sell":
         events.append(f"🔴 SÄLJ {fund} vid nästa öppning — stoppet nåddes "
@@ -339,6 +340,13 @@ def depot_notice(payload: dict, session: str, previous_session: str | None) -> s
               and (previous_session is None or r["sell_date"] > previous_session)):
             events.append(f"🚀 Raket såld {r['symbol']}: {_kr_signed(gain)} ({_pct_sv(r.get('sek_return_pct'))})")
     lines += events or ["Inga köp eller sälj idag."]
+    if hidden:
+        if rockets.get("value_sek") is not None:
+            g = rockets["value_sek"] - rockets["base_sek"]
+            lines.append(f"Raketkassan: {_fmt_kr(rockets['value_sek'])} kr ({_kr_signed(g)}, "
+                         f"{_pct_sv(g / rockets['base_sek'] * 100)}) av {_fmt_kr(rockets['base_sek'])} kr")
+        lines.append("Papper — inga riktiga pengar. Hög risk, regeln är inte bevisad. Ingen vinst är lovad.")
+        return "\n".join(lines)
     if rockets.get("value_sek") is not None:
         base = payload["base_sek"] + rockets["base_sek"]
         value = payload["total_sek"] + rockets["value_sek"]

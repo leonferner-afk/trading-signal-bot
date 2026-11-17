@@ -2,17 +2,15 @@
 explicitly configured high-risk "lekpott" (ROCKET_POT_PCT).
 
 Exactly the research rule (app.rockets, variant PAPER_PARAMS): a company
-beat analysts' EPS estimate by a wide margin, the stock rose sharply from
-the close before the report to the close of the second session after it,
-confirmed by heavy volume, in a stock that was already a relative-strength
-leader (same 6-month percentile app.rotation ranks by). The position is
+beat analysts' EPS estimate and the stock rose at least 10 % from the close
+before the report to the close of the second session after it (until
+2026-11-17 a stricter rule also demanded a 20 % beat, heavy volume and
+relative-strength leadership). The position is
 bought at the next open and sold at the open after a close 25% below its
 highest close, or after 60 sessions. Every month of this is data the
 backtest never saw.
 
-This is the strictest variant research has tested: better win rate,
-average trade and drawdown than the looser variants it replaced, but it
-still hasn't cleared every pre-registered gate (the edge over random entries
+Neither this nor any other variant has cleared every pre-registered gate (the edge over random entries
 in the same stocks isn't statistically significant). By default it stays
 paper-only. The owner chose (2026-10-26) to run a 20% lekpott on it anyway,
 sized exactly like the research portfolio and paused at -30%; every pot
@@ -38,7 +36,11 @@ from app.scanner.scanner import _drop_unclosed_bar
 
 logger = logging.getLogger("tradingbot.rockets")
 
-PAPER_PARAMS = EarningsParams(min_surprise_pct=20.0, min_reaction=0.10, min_volume_ratio=2.0, min_rs=0.8)
+# Owner's choice 2026-11-17: the broader rule (beat + >=10 % two-day reaction),
+# for more buys and sells — research: ~4x the trades of the strict rule it
+# replaced (EPS surprise>20%, reaction>=10%, volume>=2x, RS>=0.8), higher
+# CAGR and similar Sharpe but a deeper max drawdown; still unproven, paper only.
+PAPER_PARAMS = EarningsParams(min_surprise_pct=0.0, min_reaction=0.10)
 
 
 def latest_surprise(symbol: str, before: pd.Timestamp, not_before: pd.Timestamp) -> tuple[float, pd.Timestamp] | None:

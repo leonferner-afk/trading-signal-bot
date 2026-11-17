@@ -219,6 +219,8 @@ def cmd_hypothetical(args: argparse.Namespace) -> int:
             "fund_last_price": None if fund is None or fund.empty or (fund_stop and not fund_stop.holding)
             else float(fund["close"].iloc[-1]),
             "fund_stop": fund_stop.as_dict() if fund_stop else None,
+            # Owner's choice 2026-11-17: show only the rocket kassa; the depot keeps being counted.
+            "depot_hidden": os.environ.get("HIDE_DEPOT", "").strip().lower() in ("1", "true", "yes"),
             "positions": [
                 {"symbol": p.symbol, "kind": p.kind, "status": p.status, "usd_return_pct": p.usd_return_pct,
                  "sek_return_pct": p.sek_return_pct, "id": p.record_id, "entry_price": p.entry_price,

@@ -139,7 +139,10 @@ def test_find_rockets_requires_relative_strength_when_configured():
 def test_live_paper_params_match_the_research_variant_name():
     from app.live_rockets import PAPER_PARAMS
 
-    assert PAPER_PARAMS.name == "EPS surprise>20%, reaction>=10%, volume>=2x, RS>=0.8"
+    from app.rockets import EARNINGS_GRID
+
+    assert PAPER_PARAMS.name == "EPS surprise>0%, reaction>=10%"
+    assert PAPER_PARAMS.name in {p.name for p in EARNINGS_GRID}       # its backtest is in the research evidence
 
 
 # ---------------------------------------------------------------------------

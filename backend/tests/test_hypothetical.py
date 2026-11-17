@@ -230,6 +230,10 @@ def test_depot_notice_lists_orders_and_new_sales_in_kronor():
     with_stop = depot_notice({**payload, "fund_symbol": "QQQ", "fund_stop": stop}, "2026-11-05", "2026-11-04")
     assert "🔴 SÄLJ Nasdaq 100-fond vid nästa öppning — stoppet nåddes (−15,0 % från toppen)" in with_stop
     assert "🟢 Köpt tillbaka Nasdaq 100-fond: 9 876 kr" in with_stop
+    only_rockets = depot_notice({**payload, "rockets": rockets, "depot_hidden": True}, "2026-11-05", "2026-11-04")
+    assert only_rockets.startswith("🚀 Raketkassan (papper)")
+    assert "Huvuddepån" not in only_rockets and "AMGN" not in only_rockets and "Totalt" not in only_rockets
+    assert "🚀 RAKET KÖP REGN" in only_rockets and "Raketkassan: 10 200 kr (+200 kr, +2,0 %) av 10 000 kr" in only_rockets
     quiet = depot_notice({**payload, "positions": []}, "2026-11-06", "2026-11-05")
     assert "Inga köp eller sälj idag." in quiet
 
