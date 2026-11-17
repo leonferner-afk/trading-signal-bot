@@ -17,3 +17,9 @@ def test_tighter_trail_exits_earlier():
     closes = np.array([10, 12, 10.7, 9, 9, 9], float)
     assert trailing_exit(opens, closes, 0, trail=0.10, max_hold=60)[2] == "trail"     # 10.7 <= 12*0.9
     assert trailing_exit(opens, closes, 0, trail=0.10, max_hold=60)[0] == 3
+
+
+def test_shorter_hold_exits_on_time():
+    opens = np.array([10, 10, 11, 12, 13, 14, 15], float)
+    closes = np.array([10, 11, 12, 13, 14, 15, 16], float)        # steady climb: no trail exit
+    assert trailing_exit(opens, closes, 0, trail=0.25, max_hold=3) == (4, 13.0, "time")

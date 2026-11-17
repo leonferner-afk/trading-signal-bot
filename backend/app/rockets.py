@@ -201,6 +201,7 @@ class EarningsParams:
     min_rs: float = 0.0             # 0 = no requirement; else 6-month RS percentile (0-1) at entry
     trail: float = EARNINGS_TRAIL   # exit: close this far below the highest close
     take_profit: float = 0.0        # exit: close this far above the fill (0 = none)
+    max_hold: int = EARNINGS_MAX_HOLD   # exit: after this many sessions at the latest
 
     @property
     def name(self) -> str:
@@ -213,6 +214,8 @@ class EarningsParams:
             parts.append(f"trail {self.trail * 100:g}%")
         if self.take_profit > 0:
             parts.append(f"take-profit +{self.take_profit * 100:g}%")
+        if self.max_hold != EARNINGS_MAX_HOLD:
+            parts.append(f"max {self.max_hold} days")
         return ", ".join(parts)
 
 
@@ -230,6 +233,10 @@ EARNINGS_GRID = [EarningsParams(s, r) for s in (0.0, 10.0) for r in (0.05, 0.10)
     EarningsParams(min_surprise_pct=20.0, min_reaction=0.10, min_volume_ratio=2.0, min_rs=0.8, **exit_)
     for exit_ in ({"trail": 0.10}, {"trail": 0.15}, {"take_profit": 0.30}, {"take_profit": 0.50},
                   {"trail": 0.15, "take_profit": 0.30})
+] + [
+    # Owner's question (2026-11-17): more buys and sells — the live broad rule
+    # (beat + >=10 % reaction) with shorter maximum holds. Fixed before the run.
+    EarningsParams(min_surprise_pct=0.0, min_reaction=0.10, max_hold=days) for days in (5, 10, 20)
 ]
 
 
@@ -289,7 +296,7 @@ def earnings_rows(symbol: str, df: pd.DataFrame, dates: np.ndarray, earnings: pd
             rs_val = (rs or {}).get(dates[d1])
             if rs_val is None or rs_val < params.min_rs:
                 continue
-        ex = trailing_exit(opens, closes, d1, params.trail, EARNINGS_MAX_HOLD, params.take_profit)
+        ex = trailing_exit(opens, closes, d1, params.trail, params.max_hold, params.take_profit)
         if ex is None:
             continue
         k, price, reason = ex
