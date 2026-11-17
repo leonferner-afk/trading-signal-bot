@@ -168,12 +168,12 @@ details[open] summary::after { content: "Dölj"; }
     <div class="list" id="grandParts" style="margin:0 -18px -16px"></div>
   </section>
 
-  <section class="card" aria-label="Senaste händelser">
+  <section class="card" id="feedCard" aria-label="Senaste händelser">
     <div class="cardhead"><h2>Senaste händelser</h2><span class="muted" id="feedNote"></span></div>
     <div class="feed" id="feed"><div class="empty">Händelser visas här när datan har laddats.</div></div>
   </section>
 
-  <section class="card account" aria-label="Depåöversikt">
+  <section class="card account" id="accountCard" aria-label="Depåöversikt">
     <div>
       <div class="label" id="valueLabel">Huvuddepån</div>
       <div class="value-big" id="total">– kr</div>
@@ -193,7 +193,7 @@ details[open] summary::after { content: "Dölj"; }
     </div>
   </section>
 
-  <nav class="tabs" role="tablist" aria-label="Visa">
+  <nav class="tabs" id="tabs" role="tablist" aria-label="Visa">
     <button role="tab" id="tab-holdings" aria-selected="true" aria-controls="view-holdings">Innehav</button>
     <button role="tab" id="tab-trades" aria-selected="false" aria-controls="view-trades">Transaktioner</button>
     <button role="tab" id="tab-orders" aria-selected="false" aria-controls="view-orders">Order</button>
@@ -218,12 +218,12 @@ details[open] summary::after { content: "Dölj"; }
         <div class="stat"><span class="label">Insatt</span><span class="v" id="rocketBase">–</span></div>
         <div class="stat"><span class="label">Lediga platser</span><span class="v" id="rocketFree">–</span></div>
       </div>
-      <p class="note" style="margin:0">Separat papperskassa. Köper aktier som rusat efter en stark rapport, 1 000 kr per raket, högst 10 åt gången. Säljs 25 % under toppen eller efter 60 dagar. Inte bevisad: i testet snitt +8,5 % per affär och 56 % vinnare, men det kan vara slump.</p>
+      <p class="note" style="margin:0">Separat papperskassa. Köper aktier som slog analytikernas förväntningar och steg minst 10 % på två dagar, 1 000 kr per raket, högst 10 åt gången och högst 3 nya per dag. Säljs 25 % under toppen eller efter 60 dagar. Inte bevisad: i testet (2016–2026, 933 affärer) snitt +6,0 % per affär och 53 % vinnare, största ras −43 %. Det kan vara slump.</p>
     </div>
     <div class="list" id="rocketList"></div>
   </section>
 
-  <section class="card pad" aria-label="Utveckling">
+  <section class="card pad" id="chartCard" aria-label="Utveckling">
     <h2>Utveckling sedan start</h2>
     <div id="chart"><p class="muted">Kurvan fylls på för varje handelsdag.</p></div>
   </section>
@@ -552,6 +552,18 @@ function renderTotal(s) {
         `${skr(rg)} · ${pct(rg / R.base_sek * 100)}`, tone(rg));
 }
 
+// Owner's choice 2026-11-17: only the rocket kassa is shown; the depot is still counted, just not displayed.
+function applyLayout(s) {
+  const hide = !!s.depot_hidden;
+  for (const id of ["totalCard", "feedCard", "accountCard", "tabs", "view-holdings", "view-trades", "view-orders", "chartCard"])
+    if (hide) $(id).hidden = true;
+  if (!hide) { for (const id of ["feedCard", "accountCard", "tabs", "chartCard"]) $(id).hidden = false; showTab(currentTab()); }
+  $("rocketCard").style.order = hide ? "-1" : "";
+  document.querySelector("main > header").style.order = hide ? "-2" : "";
+  const live = $("liveRow"); if (live) live.style.order = hide ? "-2" : "";
+}
+function currentTab() { return TABS.find(t => $("tab-" + t).getAttribute("aria-selected") === "true") || "holdings"; }
+
 function render(s) {
   $("app").classList.remove("loading");
   const ageDays = (Date.now() - Date.parse(String(s.updated).replace(" UTC", "Z").replace(" ", "T"))) / 864e5;
@@ -573,7 +585,7 @@ function render(s) {
   $("splitlegend").innerHTML = (indexPct ? `<span><i style="background:var(--muted)"></i>${esc(s.fund_name || "S&P 500-fond")} ${Math.round(indexPct)} %</span>` : "") +
                                (botPct > 0 ? `<span><i style="background:var(--accent)"></i>Aktier via boten ${Math.round(botPct)} %</span>` : "");
   const L = ledger(s);
-  renderFeed(s, L); renderPL(L); renderHoldings(s, L); renderTrades(s, L); renderOrders(s, L); renderRockets(s); renderTotal(s);
+  renderFeed(s, L); renderPL(L); renderHoldings(s, L); renderTrades(s, L); renderOrders(s, L); renderRockets(s); renderTotal(s); applyLayout(s);
   lastHistory = Array.isArray(s.history) ? s.history : [];
   drawChart();
   $("report").innerHTML = renderReport(s.report_md);

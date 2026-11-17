@@ -115,6 +115,7 @@
     "pending": null,
     "events": []
   },
+  "depot_hidden": true,
   "positions": [
     {
       "symbol": "AMD",
