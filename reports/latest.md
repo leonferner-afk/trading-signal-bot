@@ -1,4 +1,4 @@
-# Tradingbot 2026-11-26
+# Tradingbot 2026-11-27
 
 **Marknaden:** SPY okänt sitt 200-dagars snitt
 **Strategi:** momentum-rotation — top8, in RS>=0.8, out RS<0.5
