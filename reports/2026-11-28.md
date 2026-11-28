@@ -1,13 +1,13 @@
 # Tradingbot 2026-11-28
 
-**Marknaden:** SPY under sitt 200-dagars snitt — inga nya köp förrän den är över igen
+**Marknaden:** SPY okänt sitt 200-dagars snitt
 **Strategi:** momentum-rotation — top8, in RS>=0.8, out RS<0.5
 **Portfölj:** $10,000 · 7/8 innehav · senaste handelsdag i datan: 2026-11-27
 
 > ⚠ Reglerna klarar inte forskningens förhandsbestämda krav (slår inte SPY riskjusterat). Ingen testad variant har slagit att bara äga en S&P 500-fond riskjusterat — se signalerna som ett aktivt alternativ med ungefär indexlik historik, inte som en bevisad fördel.
 
 ## 🟢 KÖP (0)
-Inga nya köp idag.
+Ingen ny handelsdag sedan förra körningen (helgdag eller omkörning) — inga nya beslut.
 
 ## 🔴 SÄLJ (0)
 Inga säljsignaler idag.
@@ -15,23 +15,20 @@ Inga säljsignaler idag.
 ## 📊 Innehav (7/8)
 | Aktie | Köpt | Senast | Resultat | Rel. styrka nu | Dagar |
 |---|---|---|---|---|---|
-| CRWD | 257.19 | 217.2 | -15.6% | 77% | 43 |
-| PANW | 390.1 | 366.76 | -6.0% | 92% | 43 |
-| ADP | 296.86 | 319.43 | +7.6% | 100% | 26 |
-| TMO | 672.69 | 683.04 | +1.5% | 98% | 25 |
-| LLY | 1271.96 | 1392.38 | +9.5% | 91% | 23 |
-| ABBV | 282.27 | 291.88 | +3.4% | 97% | 15 |
-| AMGN | 445.596 | 474.08 | +6.4% | 99% | 15 |
-
-## 👀 Näst på tur
-Starkast av de som uppfyller köpreglerna men inte fick plats: MA, GILD, V, MDT, ABT, DIS, DHR, PGR.
+| CRWD | 257.19 | 217.2 | -15.6% | — | 43 |
+| PANW | 390.1 | 366.76 | -6.0% | — | 43 |
+| ADP | 296.86 | 319.43 | +7.6% | — | 26 |
+| TMO | 672.69 | 683.04 | +1.5% | — | 25 |
+| LLY | 1271.96 | 1392.38 | +9.5% | — | 23 |
+| ABBV | 282.27 | 291.88 | +3.4% | — | 15 |
+| AMGN | 445.596 | 474.08 | +6.4% | — | 15 |
 
 ## 📈 Resultat hittills (papperstrading, riktiga fyllnadspriser, avgifter inräknade)
 8 stängda affärer · 0% vinnare · snitt -24.37% per affär
 
 ---
 Backtest av exakt dessa regler (backtest 8.7 år på storbolag valda 2015, samma regler): +14.3%/år, största nedgång -29% — SPY samma period +13.1%/år, största nedgång -34%.
-Universum: 107 aktier (1 utan data idag).
+Universum: 107 aktier (0 utan data idag).
 Boten handlar aldrig åt dig. Historik är ingen garanti — varje affär kan förlora.
 
 ## ⚖️ Mot index (SPY) — måttstocken som räknas
@@ -45,8 +42,6 @@ Sedan 2026-09-25: rotationen **-23.5 %** · SPY **-5.6 %** · skillnad **-17.9 p
 Bedöm boten över 1–2 år mot SPY, inte på enskilda dagar eller veckor. Öppna innehav räknas till senaste stängning (utan säljavgift), tomma platser som kontanter.
 
 ## 🚀 Raketer — papperstrading (köp inte)
-Kontrollerade 277 aktier: 13 steg ≥ 10% på två dagar, 1 efter en rapport som slog förväntningarna. Saknar rapportdata: ADI, COHR, LYFT, DKNG, IONQ, RGTI, QBTS, RKLB, ASTS, LUNR, SEDG, AXON.
-- **LI** — ny: rapport +86% mot förväntan, aktien +16% på två dagar — papper.
 
 | Raket | Typ | 'Köpt' | Senast | Resultat | Dagar |
 |---|---|---|---|---|---|
